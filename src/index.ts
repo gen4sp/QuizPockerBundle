@@ -2,13 +2,27 @@
  * QuizPoker Bundle - Main API Export
  */
 
-import { Game, GetQuestionFunction } from "./core/Game";
+import { Game, GetQuestionFunction } from "./core";
 import type { GameConfig, SerializedGame } from "./types/game";
 import type { User } from "./types/common";
 import { GameEventType } from "./types/events";
 
 // Export all types
 export * from "./types";
+
+// Export core classes and managers (excluding Game to avoid conflict)
+export {
+    GameRefactored,
+    GamePhaseManager,
+    BettingManager,
+    WinnerDeterminator,
+    PlayerManager,
+    GameValidator,
+    GameSerializer,
+    GameTimerManager,
+} from "./core";
+
+// Export Game as the main class
 export { Game };
 
 /**
@@ -16,9 +30,35 @@ export { Game };
  */
 const QuizPoker = {
     /**
-     * Создать новую игру
+     * Создать новую игру (оригинальная версия)
      */
     createGame(
+        players: User[],
+        getQuestionFunction: GetQuestionFunction,
+        options?: Partial<GameConfig>
+    ): Game {
+        const config: GameConfig = {
+            minPlayers: 2,
+            maxPlayers: 8,
+            initialStack: 1000,
+            anteSize: 50,
+            ...options,
+        };
+
+        const game = new Game(config, getQuestionFunction);
+
+        // Добавляем игроков
+        players.forEach((user) => {
+            game.addPlayer(user);
+        });
+
+        return game;
+    },
+
+    /**
+     * Создать новую игру (рефакторированная версия с менеджерами)
+     */
+    createGameRefactored(
         players: User[],
         getQuestionFunction: GetQuestionFunction,
         options?: Partial<GameConfig>
@@ -47,7 +87,17 @@ const QuizPoker = {
     createFromJSON(
         data: SerializedGame,
         getQuestionFunction: GetQuestionFunction
-    ): Game {
+    ): Game | null {
+        return Game.createFromJSON(data, getQuestionFunction);
+    },
+
+    /**
+     * Создать рефакторированную игру из сериализованных данных
+     */
+    createRefactoredFromJSON(
+        data: SerializedGame,
+        getQuestionFunction: GetQuestionFunction
+    ): Game | null {
         return Game.createFromJSON(data, getQuestionFunction);
     },
 

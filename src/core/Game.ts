@@ -1,6 +1,5 @@
 /**
- * Main Game class for QuizPoker
- * Handles game lifecycle, player management, rounds, and events
+ * Рефакторированный основной класс Game с использованием менеджеров
  */
 
 import { EventEmitter } from "events";
@@ -8,27 +7,23 @@ import type {
     Game as IGame,
     GameConfig,
     GameStats,
-    GameAction,
     SerializedGame,
-    Question,
 } from "../types/game";
 import { GameStatus } from "../types/game";
 import type { Player, PlayerAction } from "../types/player";
-import { PlayerStatus, BettingAction } from "../types/player";
-import type { Round, RoundResults, RoundWinner } from "../types/round";
+import { BettingAction, PlayerStatus } from "../types/player";
+import type { Round } from "../types/round";
 import { RoundPhase } from "../types/round";
-import type {
-    GameEvent,
-    GameEventType,
-    EventHandler,
-    GameCreatedData,
-    GameStartedData,
-    GameFinishedData,
-    PlayerJoinedData,
-    PlayerActionData,
-    RoundStartedData,
-} from "../types/events";
-import type { User } from "../types/common";
+import type { User, Question } from "../types/common";
+
+// Импортируем наши менеджеры
+import { GamePhaseManager } from "./GamePhaseManager";
+import { BettingManager } from "./BettingManager";
+import { WinnerDeterminator } from "./WinnerDeterminator";
+import { PlayerManager } from "./PlayerManager";
+import { GameValidator } from "./GameValidator";
+import { GameSerializer } from "./GameSerializer";
+import { GameTimerManager } from "./GameTimerManager";
 
 export type GetQuestionFunction = () => Promise<Question> | Question;
 
@@ -47,8 +42,15 @@ export class Game extends EventEmitter implements IGame {
     public totalPot: number;
     public gameStats: GameStats;
 
+    // Менеджеры
+    private phaseManager: GamePhaseManager;
+    private bettingManager: BettingManager;
+    private winnerDeterminator: WinnerDeterminator;
+    private playerManager: PlayerManager;
+    private validator: GameValidator;
+    private timerManager: GameTimerManager;
+
     private getQuestion: GetQuestionFunction;
-    private timers: Map<string, NodeJS.Timeout> = new Map();
 
     constructor(
         config: GameConfig,
@@ -59,11 +61,11 @@ export class Game extends EventEmitter implements IGame {
 
         this.id = gameId || this.generateId();
         this.config = {
+            ...config,
             minPlayers: config.minPlayers ?? 2,
             maxPlayers: config.maxPlayers ?? 8,
             initialStack: config.initialStack ?? 1000,
             anteSize: config.anteSize ?? 50,
-            ...config,
         };
         this.status = GameStatus.WAITING;
         this.players = [];
@@ -75,108 +77,157 @@ export class Game extends EventEmitter implements IGame {
         this.gameStats = this.initializeStats();
         this.getQuestion = getQuestionFn;
 
+        // Инициализируем менеджеры
+        this.phaseManager = new GamePhaseManager();
+        this.bettingManager = new BettingManager(this.config.anteSize);
+        this.winnerDeterminator = new WinnerDeterminator();
+        this.playerManager = new PlayerManager(this.config);
+        this.validator = new GameValidator(this.config);
+        this.timerManager = new GameTimerManager();
+
+        // Подписываемся на события менеджеров
+        this.setupManagerEventListeners();
+
         this.emit("game_created", {
             game: this,
-            creator: undefined,
-        } as GameCreatedData);
+        });
+    }
+
+    /**
+     * Настройка слушателей событий менеджеров
+     */
+    private setupManagerEventListeners(): void {
+        // События фазового менеджера
+        this.phaseManager.on("phase_changed", (data) => {
+            this.emit("phase_changed", data);
+        });
+
+        this.phaseManager.on("question_revealed", (data) => {
+            this.emit("question_revealed", data);
+        });
+
+        this.phaseManager.on("betting_started", (data) => {
+            this.emit("betting_started", data);
+        });
+
+        this.phaseManager.on("round_finish_requested", () => {
+            this.finishCurrentRound();
+        });
+
+        // События менеджера ставок
+        this.bettingManager.on("player_action_processed", (data) => {
+            this.emit("player_action", data);
+
+            // Проверяем завершение фазы ставок
+            if (this.bettingManager.isBettingComplete()) {
+                this.phaseManager.completeBettingPhase();
+            }
+        });
+
+        // События менеджера игроков
+        this.playerManager.on("player_added", (data) => {
+            this.players = this.playerManager.getAllPlayers();
+            this.emit("player_joined", data);
+        });
+
+        this.playerManager.on("dealer_moved", (data) => {
+            this.dealerPosition = this.players.findIndex((p) => p.isDealer);
+        });
+
+        // События определителя победителей
+        this.winnerDeterminator.on("winnings_distributed", (data) => {
+            this.emit("winnings_distributed", data);
+        });
+
+        // События менеджера таймеров
+        this.timerManager.on("timer_started", (data) => {
+            this.emit("timer_started", data);
+        });
+
+        this.timerManager.on("timer_warning", (data) => {
+            this.emit("timer_warning", data);
+        });
+
+        this.timerManager.on("timer_expired", (data) => {
+            this.emit("timer_expired", data);
+        });
+
+        this.timerManager.on("answer_timeout", (data) => {
+            this.emit("answer_timeout", data);
+            // Автоматически переходим к следующей фазе при timeout ответа
+            this.phaseManager.nextPhase();
+        });
+
+        this.timerManager.on("player_action_timeout", (data) => {
+            this.emit("player_action_timeout", data);
+            // Выполняем действие по умолчанию (fold) при timeout действия игрока
+            if (data.defaultAction === "fold") {
+                this.processFoldOnTimeout(data.playerId);
+            }
+        });
     }
 
     /**
      * Добавить игрока в игру
      */
     public addPlayer(user: User): Player {
-        if (this.status !== GameStatus.WAITING) {
-            throw new Error("Нельзя добавить игрока - игра уже началась");
+        // Используем валидатор
+        const validation = this.validator.validateAddPlayer(
+            this.players,
+            user.id,
+            this.status
+        );
+
+        if (!validation.isValid) {
+            throw new Error(validation.error || "Невозможно добавить игрока");
         }
 
-        if (this.players.length >= this.config.maxPlayers) {
-            throw new Error("Достигнуто максимальное количество игроков");
-        }
-
-        if (this.players.some((p) => p.user.id === user.id)) {
-            throw new Error("Игрок уже в игре");
-        }
-
-        const player: Player = {
-            id: this.generateId(),
-            user,
-            name: user.name,
-            stack: this.config.initialStack,
-            position: this.players.length,
-            status: PlayerStatus.WAITING,
-            currentBet: 0,
-            totalBetInRound: 0,
-            isAllIn: false,
-            isDealer: this.players.length === 0, // Первый игрок становится дилером
-            stats: {
-                roundsPlayed: 0,
-                roundsWon: 0,
-                totalWinnings: 0,
-                foldCount: 0,
-                allInCount: 0,
-                averageAccuracy: 0,
-            },
-        };
-
-        this.players.push(player);
-
-        this.emit("player_joined", {
-            player,
-            totalPlayers: this.players.length,
-        } as PlayerJoinedData);
-
-        return player;
+        // Используем менеджер игроков
+        return this.playerManager.addPlayer(user);
     }
 
     /**
      * Удалить игрока из игры
      */
     public removePlayer(playerId: string): boolean {
-        if (this.status === GameStatus.PLAYING) {
-            throw new Error("Нельзя удалить игрока во время игры");
+        const validation = this.validator.validateRemovePlayer(this.status);
+        if (!validation.isValid) {
+            throw new Error(validation.error || "Невозможно удалить игрока");
         }
 
-        const playerIndex = this.players.findIndex((p) => p.id === playerId);
-        if (playerIndex === -1) {
-            return false;
+        const result = this.playerManager.removePlayer(playerId);
+        if (result) {
+            this.players = this.playerManager.getAllPlayers();
         }
-
-        this.players.splice(playerIndex, 1);
-
-        // Пересчитываем позиции
-        this.players.forEach((player, index) => {
-            player.position = index;
-        });
-
-        return true;
+        return result;
     }
 
     /**
      * Начать игру
      */
     public async startGame(): Promise<void> {
-        if (this.status !== GameStatus.WAITING) {
-            throw new Error("Игра уже начата или завершена");
-        }
-
-        if (this.players.length < this.config.minPlayers) {
-            throw new Error(
-                `Недостаточно игроков. Минимум: ${this.config.minPlayers}`
-            );
+        const validation = this.validator.validateGameStart(
+            this.players,
+            this.status
+        );
+        if (!validation.isValid) {
+            throw new Error(validation.error || "Невозможно начать игру");
         }
 
         this.status = GameStatus.PLAYING;
         this.startedAt = new Date();
 
-        // Устанавливаем случайного дилера
-        this.dealerPosition = Math.floor(Math.random() * this.players.length);
-        this.players.forEach((p) => (p.isDealer = false));
-        this.players[this.dealerPosition].isDealer = true;
+        // Устанавливаем дилера
+        const firstPlayer = this.playerManager.getAllPlayers()[0];
+        if (firstPlayer) {
+            this.playerManager.setDealer(firstPlayer.id);
+            this.dealerPosition = 0;
+        }
 
         this.emit("game_started", {
             game: this,
             startTime: this.startedAt,
-        } as GameStartedData);
+        });
 
         await this.startNextRound();
     }
@@ -187,66 +238,89 @@ export class Game extends EventEmitter implements IGame {
     public async action(
         player: Player | string,
         actionType: BettingAction,
-        amount?: number
+        amount?: number,
+        answer?: number
     ): Promise<boolean> {
-        if (this.status !== GameStatus.PLAYING) {
-            throw new Error("Игра не активна");
-        }
-
         const playerId = typeof player === "string" ? player : player.id;
-        const gamePlayer = this.players.find((p) => p.id === playerId);
+        const gamePlayer = this.playerManager.getPlayer(playerId);
 
         if (!gamePlayer) {
             throw new Error("Игрок не найден");
         }
 
+        // Создаем действие
         const action: PlayerAction = {
             playerId,
             type: actionType,
-            amount,
             timestamp: new Date(),
+            ...(amount !== undefined && { amount }),
+            ...(answer !== undefined && { answer }),
         };
 
-        const isValid = this.validateAction(gamePlayer, action);
+        // Валидируем действие
+        const validation = this.validator.validatePlayerAction(
+            gamePlayer,
+            action,
+            this.currentRound || null,
+            this.status
+        );
 
-        if (isValid) {
-            await this.processAction(gamePlayer, action);
+        if (!validation.isValid) {
+            this.emit("player_action", {
+                player: gamePlayer,
+                action,
+                isValid: false,
+                potBefore: this.currentRound?.pot.totalPot || 0,
+                potAfter: this.currentRound?.pot.totalPot || 0,
+            });
+            return false;
         }
 
-        this.emit("player_action", {
-            player: gamePlayer,
-            action,
-            isValid,
-            potBefore: this.currentRound?.pot.totalPot || 0,
-            potAfter: this.currentRound?.pot.totalPot || 0,
-        } as PlayerActionData);
+        // Обрабатываем действие
+        if (actionType === BettingAction.ANSWER) {
+            return this.processAnswer(gamePlayer, answer);
+        } else {
+            return this.bettingManager.processAction(gamePlayer, action);
+        }
+    }
 
-        return isValid;
+    /**
+     * Обработать ответ игрока
+     */
+    private processAnswer(player: Player, answer?: number): boolean {
+        if (answer === undefined || !this.currentRound) return false;
+
+        // Записываем ответ игрока
+        (player as any).answer = answer;
+
+        this.emit("player_answer", {
+            player,
+            answer,
+            timeRemaining: 0,
+            allAnswersReceived: this.checkAllAnswersReceived(),
+        });
+
+        return true;
+    }
+
+    /**
+     * Проверить получены ли все ответы
+     */
+    private checkAllAnswersReceived(): boolean {
+        if (!this.currentRound) return false;
+
+        const activePlayers = this.currentRound.activePlayers.filter(
+            (p) => p.status !== PlayerStatus.FOLDED
+        );
+
+        return activePlayers.every((p) => (p as any).answer !== undefined);
     }
 
     /**
      * Сериализация игры
      */
     public serialize(): SerializedGame {
-        return {
-            gameData: {
-                id: this.id,
-                config: this.config,
-                status: this.status,
-                players: this.players,
-                currentRound: this.currentRound,
-                roundNumber: this.roundNumber,
-                dealerPosition: this.dealerPosition,
-                roundHistory: this.roundHistory,
-                createdAt: this.createdAt,
-                startedAt: this.startedAt,
-                finishedAt: this.finishedAt,
-                totalPot: this.totalPot,
-                gameStats: this.gameStats,
-            },
-            version: "1.0.0",
-            serializedAt: new Date(),
-        };
+        return GameSerializer.serialize(this);
     }
 
     /**
@@ -255,24 +329,33 @@ export class Game extends EventEmitter implements IGame {
     public static createFromJSON(
         serializedData: SerializedGame,
         getQuestionFn: GetQuestionFunction
-    ): Game {
-        const game = new Game(
-            serializedData.gameData.config,
-            getQuestionFn,
-            serializedData.gameData.id
-        );
+    ): Game | null {
+        const deserializationResult =
+            GameSerializer.deserialize(serializedData);
+
+        if (!deserializationResult.success || !deserializationResult.game) {
+            console.error(
+                "Ошибка десериализации:",
+                deserializationResult.error
+            );
+            return null;
+        }
+
+        const gameData = deserializationResult.game;
+        const game = new Game(gameData.config!, getQuestionFn, gameData.id);
 
         // Восстанавливаем состояние
-        game.status = serializedData.gameData.status;
-        game.players = serializedData.gameData.players;
-        game.currentRound = serializedData.gameData.currentRound;
-        game.roundNumber = serializedData.gameData.roundNumber;
-        game.dealerPosition = serializedData.gameData.dealerPosition;
-        game.roundHistory = serializedData.gameData.roundHistory;
-        game.startedAt = serializedData.gameData.startedAt;
-        game.finishedAt = serializedData.gameData.finishedAt;
-        game.totalPot = serializedData.gameData.totalPot;
-        game.gameStats = serializedData.gameData.gameStats;
+        if (gameData.status) game.status = gameData.status;
+        if (gameData.players) game.players = gameData.players;
+        if (gameData.currentRound) game.currentRound = gameData.currentRound;
+        if (gameData.roundNumber) game.roundNumber = gameData.roundNumber;
+        if (gameData.dealerPosition !== undefined)
+            game.dealerPosition = gameData.dealerPosition;
+        if (gameData.roundHistory) game.roundHistory = gameData.roundHistory;
+        if (gameData.startedAt) game.startedAt = gameData.startedAt;
+        if (gameData.finishedAt) game.finishedAt = gameData.finishedAt;
+        if (gameData.totalPot) game.totalPot = gameData.totalPot;
+        if (gameData.gameStats) game.gameStats = gameData.gameStats;
 
         return game;
     }
@@ -292,7 +375,7 @@ export class Game extends EventEmitter implements IGame {
             roundNumber: this.roundNumber,
             currentPhase: RoundPhase.ANTE,
             question,
-            activePlayers: this.getActivePlayers(),
+            activePlayers: this.playerManager.getActivePlayers(),
             pot: {
                 mainPot: 0,
                 sidePots: [],
@@ -311,178 +394,36 @@ export class Game extends EventEmitter implements IGame {
 
         this.currentRound = round;
 
+        // Настраиваем менеджеры для нового раунда
+        this.phaseManager.setCurrentRound(round);
+        this.bettingManager.setCurrentRound(round);
+
         this.emit("round_started", {
             round,
             dealerPosition: this.dealerPosition,
             question: question.text,
-        } as RoundStartedData);
+        });
 
         // Начинаем с фазы ANTE
-        await this.processAntePhase();
+        await this.bettingManager.processAntePhase();
+        await this.phaseManager.nextPhase();
     }
 
     /**
-     * Обработка фазы ANTE
+     * Завершить текущий раунд
      */
-    private async processAntePhase(): Promise<void> {
+    private async finishCurrentRound(): Promise<void> {
         if (!this.currentRound) return;
 
-        const anteSize = this.currentRound.settings.anteSize;
+        this.currentRound.endTime = new Date();
 
-        // Все активные игроки делают анте
-        for (const player of this.currentRound.activePlayers) {
-            const anteAmount = Math.min(player.stack, anteSize);
-            player.stack -= anteAmount;
-            player.currentBet = anteAmount;
-            player.totalBetInRound = anteAmount;
-            this.currentRound.pot.mainPot += anteAmount;
-            this.currentRound.pot.totalPot += anteAmount;
+        // Определяем победителей
+        const winners = this.winnerDeterminator.determineWinners(
+            this.currentRound
+        );
 
-            if (player.stack === 0) {
-                player.isAllIn = true;
-                player.status = PlayerStatus.ALL_IN;
-            } else {
-                player.status = PlayerStatus.ACTIVE;
-            }
-        }
-
-        // Переходим к следующей фазе
-        await this.nextPhase();
-    }
-
-    /**
-     * Переход к следующей фазе
-     */
-    private async nextPhase(): Promise<void> {
-        if (!this.currentRound) return;
-
-        const phases = Object.values(RoundPhase);
-        const currentIndex = phases.indexOf(this.currentRound.currentPhase);
-
-        if (currentIndex < phases.length - 1) {
-            const previousPhase = this.currentRound.currentPhase;
-            this.currentRound.currentPhase = phases[currentIndex + 1];
-
-            this.emit("phase_changed", {
-                round: this.currentRound,
-                previousPhase,
-                newPhase: this.currentRound.currentPhase,
-                reason: "automatic",
-            });
-
-            // Обрабатываем новую фазу
-            await this.processCurrentPhase();
-        }
-    }
-
-    /**
-     * Обработка текущей фазы
-     */
-    private async processCurrentPhase(): Promise<void> {
-        if (!this.currentRound) return;
-
-        switch (this.currentRound.currentPhase) {
-            case RoundPhase.QUESTION1:
-                await this.processQuestionPhase();
-                break;
-            case RoundPhase.BETTING1:
-            case RoundPhase.BETTING2:
-            case RoundPhase.BETTING3:
-                await this.processBettingPhase();
-                break;
-            case RoundPhase.QUESTION2:
-                await this.processHintPhase();
-                break;
-            case RoundPhase.REVEAL:
-                await this.processRevealPhase();
-                break;
-            case RoundPhase.SHOWDOWN:
-                await this.processShowdownPhase();
-                break;
-            case RoundPhase.FINISHED:
-                await this.finishRound();
-                break;
-        }
-    }
-
-    /**
-     * Обработка фазы вопроса
-     */
-    private async processQuestionPhase(): Promise<void> {
-        if (!this.currentRound?.question) return;
-
-        this.emit("question_revealed", {
-            round: this.currentRound,
-            question: this.currentRound.question.text,
-            timeToAnswer: 30,
-        });
-
-        // Автоматический переход через 30 секунд
-        this.setTimer("question_timer", 30000, () => {
-            this.nextPhase();
-        });
-    }
-
-    /**
-     * Обработка фазы подсказки
-     */
-    private async processHintPhase(): Promise<void> {
-        // Показываем подсказку и автоматически переходим дальше
-        setTimeout(() => {
-            this.nextPhase();
-        }, 5000); // 5 секунд на показ подсказки
-    }
-
-    /**
-     * Обработка фазы раскрытия ответа
-     */
-    private async processRevealPhase(): Promise<void> {
-        if (!this.currentRound?.question) return;
-
-        this.emit("answer_revealed", {
-            round: this.currentRound,
-            correctAnswer: this.currentRound.question.correctAnswer,
-            playerAnswers: this.currentRound.activePlayers
-                .filter((p) => p.answer !== undefined)
-                .map((p) => ({
-                    playerId: p.id,
-                    answer: p.answer!,
-                    deviation: Math.abs(
-                        this.currentRound!.question!.correctAnswer - p.answer!
-                    ),
-                })),
-        });
-
-        // Автоматический переход
-        setTimeout(() => {
-            this.nextPhase();
-        }, 5000);
-    }
-
-    /**
-     * Обработка фазы ставок
-     */
-    private async processBettingPhase(): Promise<void> {
-        // Инициализируем betting round
-        this.emit("betting_started", {
-            round: this.currentRound!,
-            phase: this.currentRound!.currentPhase,
-            currentPlayer: this.getNextPlayerToAct()?.id || "",
-            currentBet: this.getCurrentBet(),
-            minRaise: this.config.anteSize,
-        });
-
-        // Betting логика будет обрабатываться через action() метод
-    }
-
-    /**
-     * Обработка фазы showdown
-     */
-    private async processShowdownPhase(): Promise<void> {
-        if (!this.currentRound) return;
-
-        const winners = this.determineWinners();
-        this.distributeWinnings(winners);
+        // Распределяем выигрыш
+        this.winnerDeterminator.distributeWinnings(this.players, winners);
 
         this.emit("winners_determined", {
             round: this.currentRound,
@@ -494,18 +435,7 @@ export class Game extends EventEmitter implements IGame {
             totalDistributed: winners.reduce((sum, w) => sum + w.winAmount, 0),
         });
 
-        setTimeout(() => {
-            this.nextPhase();
-        }, 3000);
-    }
-
-    /**
-     * Завершение раунда
-     */
-    private async finishRound(): Promise<void> {
-        if (!this.currentRound) return;
-
-        this.currentRound.endTime = new Date();
+        // Добавляем в историю
         this.roundHistory.push(this.currentRound);
 
         // Обновляем статистику
@@ -515,7 +445,7 @@ export class Game extends EventEmitter implements IGame {
         if (this.shouldEndGame()) {
             await this.endGame();
         } else {
-            // Готовимся к следующему раунду
+            // Подготавливаем следующий раунд
             this.prepareNextRound();
             setTimeout(() => {
                 this.startNextRound();
@@ -524,319 +454,59 @@ export class Game extends EventEmitter implements IGame {
     }
 
     /**
-     * Валидация действия игрока
+     * Подготовка к следующему раунду
      */
-    private validateAction(player: Player, action: PlayerAction): boolean {
-        if (!this.currentRound) return false;
+    private prepareNextRound(): void {
+        // Сдвигаем дилера
+        this.playerManager.moveDealer();
+        this.dealerPosition = this.players.findIndex((p) => p.isDealer);
 
-        // Проверяем что это ход игрока
-        const nextPlayer = this.getNextPlayerToAct();
-        if (!nextPlayer || nextPlayer.id !== player.id) {
-            return false;
-        }
+        // Сбрасываем состояние игроков
+        this.playerManager.resetPlayersForNewRound();
+        this.players = this.playerManager.getAllPlayers();
 
-        // Проверяем что фаза подходящая для действия
-        const bettingPhases = [
-            RoundPhase.BETTING1,
-            RoundPhase.BETTING2,
-            RoundPhase.BETTING3,
-        ];
-        if (!bettingPhases.includes(this.currentRound.currentPhase)) {
-            return false;
-        }
-
-        // Валидируем конкретное действие
-        return this.validateSpecificAction(player, action);
-    }
-
-    /**
-     * Валидация конкретного действия
-     */
-    private validateSpecificAction(
-        player: Player,
-        action: PlayerAction
-    ): boolean {
-        const currentBet = this.getCurrentBet();
-
-        switch (action.type) {
-            case BettingAction.CHECK:
-                return player.currentBet === currentBet;
-
-            case BettingAction.CALL:
-                return player.currentBet < currentBet && player.stack > 0;
-
-            case BettingAction.RAISE:
-                return (
-                    action.amount !== undefined &&
-                    action.amount > currentBet &&
-                    player.stack >= action.amount
-                );
-
-            case BettingAction.ALL_IN:
-                return player.stack > 0;
-
-            case BettingAction.FOLD:
-                return true; // Всегда можно сбросить
-
-            case BettingAction.ANSWER:
-                return (
-                    this.currentRound?.currentPhase === RoundPhase.QUESTION1 ||
-                    this.currentRound?.currentPhase === RoundPhase.QUESTION2
-                );
-
-            default:
-                return false;
-        }
-    }
-
-    /**
-     * Обработка действия игрока
-     */
-    private async processAction(
-        player: Player,
-        action: PlayerAction
-    ): Promise<void> {
-        if (!this.currentRound) return;
-
-        switch (action.type) {
-            case BettingAction.CHECK:
-                // Ничего не делаем, просто переходим к следующему игроку
-                break;
-
-            case BettingAction.CALL:
-                const callAmount = this.getCurrentBet() - player.currentBet;
-                const actualCall = Math.min(callAmount, player.stack);
-                player.stack -= actualCall;
-                player.currentBet += actualCall;
-                player.totalBetInRound += actualCall;
-                this.currentRound.pot.mainPot += actualCall;
-                this.currentRound.pot.totalPot += actualCall;
-
-                if (player.stack === 0) {
-                    player.isAllIn = true;
-                    player.status = PlayerStatus.ALL_IN;
-                }
-                break;
-
-            case BettingAction.RAISE:
-                if (action.amount !== undefined) {
-                    const raiseAmount = action.amount - player.currentBet;
-                    player.stack -= raiseAmount;
-                    player.currentBet = action.amount;
-                    player.totalBetInRound += raiseAmount;
-                    this.currentRound.pot.mainPot += raiseAmount;
-                    this.currentRound.pot.totalPot += raiseAmount;
-                }
-                break;
-
-            case BettingAction.ALL_IN:
-                const allInAmount = player.stack;
-                player.stack = 0;
-                player.currentBet += allInAmount;
-                player.totalBetInRound += allInAmount;
-                this.currentRound.pot.mainPot += allInAmount;
-                this.currentRound.pot.totalPot += allInAmount;
-                player.isAllIn = true;
-                player.status = PlayerStatus.ALL_IN;
-                player.stats.allInCount++;
-                break;
-
-            case BettingAction.FOLD:
-                player.status = PlayerStatus.FOLDED;
-                player.stats.foldCount++;
-                break;
-
-            case BettingAction.ANSWER:
-                if (action.answer !== undefined) {
-                    player.answer = action.answer;
-                }
-                break;
-        }
-
-        // Добавляем действие в историю
-        this.currentRound.actionHistory.push(action);
-
-        // Проверяем завершена ли фаза ставок
-        if (this.isBettingPhaseComplete()) {
-            await this.nextPhase();
-        }
-    }
-
-    /**
-     * Определение победителей раунда
-     */
-    private determineWinners(): RoundWinner[] {
-        if (!this.currentRound?.question) return [];
-
-        const correctAnswer = this.currentRound.question.correctAnswer;
-        const activePlayers = this.currentRound.activePlayers.filter(
-            (p) => p.status !== PlayerStatus.FOLDED && p.answer !== undefined
-        );
-
-        if (activePlayers.length === 0) return [];
-
-        // Вычисляем точность для каждого игрока
-        const playersWithAccuracy = activePlayers.map((player) => ({
-            player,
-            deviation: Math.abs(correctAnswer - player.answer!),
-            accuracy: Math.max(
-                0,
-                100 - Math.abs(correctAnswer - player.answer!)
-            ),
-        }));
-
-        // Находим игрока(ов) с наименьшим отклонением
-        const minDeviation = Math.min(
-            ...playersWithAccuracy.map((p) => p.deviation)
-        );
-        const winners = playersWithAccuracy.filter(
-            (p) => p.deviation === minDeviation
-        );
-
-        // Распределяем банк
-        const totalPot = this.currentRound.pot.totalPot;
-        const winAmountPerWinner = Math.floor(totalPot / winners.length);
-
-        return winners.map((winner) => ({
-            playerId: winner.player.id,
-            winAmount: winAmountPerWinner,
-            potType: "main" as const,
-            accuracy: winner.accuracy,
-            deviation: winner.deviation,
-        }));
-    }
-
-    /**
-     * Распределение выигрыша
-     */
-    private distributeWinnings(winners: RoundWinner[]): void {
-        winners.forEach((winner) => {
-            const player = this.players.find((p) => p.id === winner.playerId);
-            if (player) {
-                player.stack += winner.winAmount;
-                player.stats.totalWinnings += winner.winAmount;
-                player.stats.roundsWon++;
-            }
-        });
-    }
-
-    /**
-     * Получить активных игроков
-     */
-    private getActivePlayers(): Player[] {
-        return this.players.filter(
-            (p) => p.stack > 0 || p.status !== PlayerStatus.ELIMINATED
-        );
-    }
-
-    /**
-     * Получить следующего игрока для действия
-     */
-    private getNextPlayerToAct(): Player | null {
-        if (!this.currentRound) return null;
-
-        // Находим активных игроков которые могут действовать
-        const activePlayers = this.currentRound.activePlayers.filter(
-            (p) => p.status === PlayerStatus.ACTIVE && !p.isAllIn
-        );
-
-        if (activePlayers.length === 0) return null;
-
-        // Возвращаем первого активного игрока (можно усложнить логику)
-        return activePlayers[0];
-    }
-
-    /**
-     * Получить текущую ставку для уравнивания
-     */
-    private getCurrentBet(): number {
-        if (!this.currentRound) return 0;
-        return Math.max(
-            ...this.currentRound.activePlayers.map((p) => p.currentBet)
-        );
-    }
-
-    /**
-     * Проверить завершена ли фаза ставок
-     */
-    private isBettingPhaseComplete(): boolean {
-        if (!this.currentRound) return true;
-
-        const activePlayers = this.currentRound.activePlayers.filter(
-            (p) => p.status !== PlayerStatus.FOLDED
-        );
-
-        if (activePlayers.length <= 1) return true;
-
-        const currentBet = this.getCurrentBet();
-        const playersCanAct = activePlayers.filter(
-            (p) => p.currentBet < currentBet && !p.isAllIn
-        );
-
-        return playersCanAct.length === 0;
-    }
-
-    /**
-     * Вычислить размер анте для текущего раунда
-     */
-    private calculateAnteSize(): number {
-        // Увеличиваем анте каждый раунд
-        return this.config.anteSize * this.roundNumber;
+        // Исключаем игроков с нулевым стеком
+        this.playerManager.eliminatePlayersWithZeroStack();
+        this.players = this.playerManager.getAllPlayers();
     }
 
     /**
      * Проверить нужно ли завершать игру
      */
     private shouldEndGame(): boolean {
-        const activePlayers = this.getActivePlayers();
-        return activePlayers.length <= 1 || this.roundNumber >= 10; // Максимум 10 раундов
+        return (
+            !this.playerManager.hasEnoughPlayersToContinue() ||
+            this.roundNumber >= 10
+        );
     }
 
     /**
-     * Подготовка к следующему раунду
-     */
-    private prepareNextRound(): void {
-        // Сдвигаем дилера
-        this.dealerPosition = (this.dealerPosition + 1) % this.players.length;
-
-        // Сбрасываем состояние игроков
-        this.players.forEach((player) => {
-            player.currentBet = 0;
-            player.totalBetInRound = 0;
-            player.answer = undefined;
-            player.isAllIn = false;
-            player.isDealer = false;
-
-            if (player.stack <= 0) {
-                player.status = PlayerStatus.ELIMINATED;
-            } else {
-                player.status = PlayerStatus.WAITING;
-            }
-        });
-
-        // Устанавливаем нового дилера
-        this.players[this.dealerPosition].isDealer = true;
-    }
-
-    /**
-     * Завершение игры
+     * Завершить игру
      */
     private async endGame(): Promise<void> {
         this.status = GameStatus.FINISHED;
         this.finishedAt = new Date();
 
         // Определяем победителя
-        const winner = this.players.reduce((prev, current) =>
-            current.stack > prev.stack ? current : prev
-        );
+        const rankings = this.playerManager.getPlayerRankings();
+        const winner = rankings[0];
 
         this.emit("game_finished", {
             game: this,
             winner,
-            finalStandings: [...this.players].sort((a, b) => b.stack - a.stack),
+            finalStandings: rankings,
             duration:
                 this.finishedAt.getTime() - (this.startedAt?.getTime() || 0),
-        } as GameFinishedData);
+        });
+    }
+
+    /**
+     * Вычислить размер анте для текущего раунда
+     */
+    private calculateAnteSize(): number {
+        return (
+            this.config.anteSize * Math.max(1, Math.floor(this.roundNumber / 3))
+        );
     }
 
     /**
@@ -854,45 +524,30 @@ export class Game extends EventEmitter implements IGame {
         this.gameStats.totalDuration += roundDuration;
         this.gameStats.averageRoundDuration =
             this.gameStats.totalDuration / this.gameStats.roundsPlayed;
-        this.gameStats.totalBets += this.currentRound.actionHistory.filter(
-            (a) =>
-                [
-                    BettingAction.CALL,
-                    BettingAction.RAISE,
-                    BettingAction.ALL_IN,
-                ].includes(a.type)
-        ).length;
 
         if (this.currentRound.pot.totalPot > this.gameStats.largestPot) {
             this.gameStats.largestPot = this.currentRound.pot.totalPot;
         }
 
-        this.gameStats.totalFolds += this.currentRound.actionHistory.filter(
+        // Подсчитываем статистику действий
+        const bettingActions = this.currentRound.actionHistory.filter((a) =>
+            [
+                BettingAction.CALL,
+                BettingAction.RAISE,
+                BettingAction.ALL_IN,
+            ].includes(a.type)
+        );
+        this.gameStats.totalBets += bettingActions.length;
+
+        const folds = this.currentRound.actionHistory.filter(
             (a) => a.type === BettingAction.FOLD
-        ).length;
-        this.gameStats.totalAllIns += this.currentRound.actionHistory.filter(
+        );
+        this.gameStats.totalFolds += folds.length;
+
+        const allIns = this.currentRound.actionHistory.filter(
             (a) => a.type === BettingAction.ALL_IN
-        ).length;
-    }
-
-    /**
-     * Установить таймер
-     */
-    private setTimer(name: string, delay: number, callback: () => void): void {
-        this.clearTimer(name);
-        const timer = setTimeout(callback, delay);
-        this.timers.set(name, timer);
-    }
-
-    /**
-     * Очистить таймер
-     */
-    private clearTimer(name: string): void {
-        const timer = this.timers.get(name);
-        if (timer) {
-            clearTimeout(timer);
-            this.timers.delete(name);
-        }
+        );
+        this.gameStats.totalAllIns += allIns.length;
     }
 
     /**
@@ -920,11 +575,38 @@ export class Game extends EventEmitter implements IGame {
     }
 
     /**
-     * Очистка всех таймеров при уничтожении объекта
+     * Получить снимок игры для клиента
+     */
+    public getClientSnapshot(): any {
+        return GameSerializer.createClientSnapshot(this);
+    }
+
+    /**
+     * Обработать фолд при timeout действия игрока
+     */
+    private processFoldOnTimeout(playerId: string): void {
+        const player = this.playerManager.getPlayer(playerId);
+        if (player && this.currentRound) {
+            // Используем BettingManager для обработки фолда
+            const foldAction = {
+                playerId,
+                type: BettingAction.FOLD,
+                timestamp: new Date(),
+            };
+
+            this.bettingManager.processAction(player, foldAction);
+        }
+    }
+
+    /**
+     * Очистка ресурсов при уничтожении объекта
      */
     public destroy(): void {
-        this.timers.forEach((timer) => clearTimeout(timer));
-        this.timers.clear();
+        this.phaseManager.destroy();
+        this.bettingManager.destroy();
+        this.winnerDeterminator.destroy();
+        this.playerManager.destroy();
+        this.timerManager.destroy();
         this.removeAllListeners();
     }
 }

@@ -3,13 +3,7 @@
  */
 
 import type { Player, PlayerAction } from "./player";
-
-// Forward declaration to avoid circular dependency
-export interface Round {
-    id: string;
-    roundNumber: number;
-    [key: string]: any; // Allow other properties
-}
+import type { Round } from "./round";
 
 export interface Game {
     /** Уникальный идентификатор игры */
