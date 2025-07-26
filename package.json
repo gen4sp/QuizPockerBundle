@@ -1,0 +1,33 @@
+{
+    "name": "quizpokerbundle",
+    "version": "1.0.0",
+    "description": "QuizPoker Bundle TypeScript project",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx src/index.ts",
+        "start": "node dist/index.js",
+        "watch": "tsc --watch",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "keywords": [
+        "typescript",
+        "quiz",
+        "poker"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "^20.10.0",
+        "tsx": "^4.6.0",
+        "typescript": "^5.3.0",
+        "vitest": "^1.0.0"
+    },
+    "dependencies": {},
+    "engines": {
+        "node": ">=16.0.0"
+    }
+}
