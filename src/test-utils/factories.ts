@@ -6,7 +6,6 @@ import type { User, Question } from "../types/common";
 import type { Player, PlayerStats } from "../types/player";
 import { PlayerStatus } from "../types/player";
 import type { GameConfig } from "../types/game";
-import { GameStatus } from "../types/game";
 import type { Round, RoundPot, RoundSettings } from "../types/round";
 import { RoundPhase } from "../types/round";
 

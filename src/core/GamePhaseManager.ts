@@ -5,8 +5,6 @@
 import { EventEmitter } from "events";
 import type { Round } from "../types/round";
 import { RoundPhase } from "../types/round";
-import type { Player } from "../types/player";
-import type { Question } from "../types/common";
 
 export class GamePhaseManager extends EventEmitter {
     private currentRound: Round | null = null;

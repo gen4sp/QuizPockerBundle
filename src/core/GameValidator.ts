@@ -492,21 +492,6 @@ export class GameValidator {
     }
 
     /**
-     * Получить текущую ставку из массива игроков (для тестов)
-     */
-    private getCurrentBetFromPlayers(players: Player[]): number {
-        if (players.length === 0) return 0;
-        return Math.max(...players.map((p) => p.currentBet));
-    }
-
-    /**
-     * Подсчитать активных игроков
-     */
-    private getActivePlayersCount(players: Player[]): number {
-        return players.filter((p) => p.status === PlayerStatus.ACTIVE).length;
-    }
-
-    /**
      * Обновить конфигурацию
      */
     public updateConfig(newConfig: Partial<GameConfig>): void {

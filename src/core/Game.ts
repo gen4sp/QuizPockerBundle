@@ -140,7 +140,7 @@ export class Game extends EventEmitter implements IGame {
             this.emit("player_joined", data);
         });
 
-        this.playerManager.on("dealer_moved", (data) => {
+        this.playerManager.on("dealer_moved", (_data) => {
             this.dealerPosition = this.players.findIndex((p) => p.isDealer);
         });
 

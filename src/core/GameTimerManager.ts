@@ -3,7 +3,6 @@
  */
 
 import { EventEmitter } from "events";
-import type { Player } from "../types/player";
 import type { Round } from "../types/round";
 import { RoundPhase } from "../types/round";
 
@@ -290,7 +289,7 @@ export class GameTimerManager extends EventEmitter {
     public getActiveTimers(): TimerState[] {
         const activeTimers: TimerState[] = [];
 
-        for (const [name, state] of this.timerStates.entries()) {
+        for (const [_name, state] of this.timerStates.entries()) {
             if (state.isActive) {
                 const elapsed = Date.now() - state.startedAt.getTime();
                 state.remainingTime = Math.max(0, state.duration - elapsed);
@@ -314,7 +313,7 @@ export class GameTimerManager extends EventEmitter {
      */
     public stopPlayerTimers(playerId: string): void {
         const playerTimers = Array.from(this.timerStates.entries())
-            .filter(([name, state]) => state.playerId === playerId)
+            .filter(([_name, state]) => state.playerId === playerId)
             .map(([name]) => name);
 
         playerTimers.forEach((timerName) => this.stopTimer(timerName));
@@ -325,7 +324,7 @@ export class GameTimerManager extends EventEmitter {
      */
     public stopPhaseTimers(phase: RoundPhase): void {
         const phaseTimers = Array.from(this.timerStates.entries())
-            .filter(([name, state]) => state.phase === phase)
+            .filter(([_name, state]) => state.phase === phase)
             .map(([name]) => name);
 
         phaseTimers.forEach((timerName) => this.stopTimer(timerName));

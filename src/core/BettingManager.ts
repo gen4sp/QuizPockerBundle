@@ -5,15 +5,14 @@
 import { EventEmitter } from "events";
 import type { Player, PlayerAction } from "../types/player";
 import { BettingAction, PlayerStatus } from "../types/player";
-import type { Round, RoundPot } from "../types/round";
+import type { Round } from "../types/round";
 
 export class BettingManager extends EventEmitter {
     private currentRound: Round | null = null;
-    private anteSize: number = 50;
 
-    constructor(anteSize: number = 50) {
+    constructor(_anteSize: number = 50) {
         super();
-        this.anteSize = anteSize;
+        // anteSize используется только локально в конструкторе
     }
 
     /**
