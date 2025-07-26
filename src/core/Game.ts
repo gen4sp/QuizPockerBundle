@@ -22,7 +22,7 @@ import { BettingManager } from "./BettingManager";
 import { WinnerDeterminator } from "./WinnerDeterminator";
 import { PlayerManager } from "./PlayerManager";
 import { GameValidator } from "./GameValidator";
-import { GameSerializer } from "./GameSerializer";
+import { GameSerializer, type SerializationOptions } from "./GameSerializer";
 import { GameTimerManager } from "./GameTimerManager";
 
 export type GetQuestionFunction = () => Promise<Question> | Question;
@@ -83,7 +83,17 @@ export class Game extends EventEmitter implements IGame {
         this.winnerDeterminator = new WinnerDeterminator();
         this.playerManager = new PlayerManager(this.config);
         this.validator = new GameValidator(this.config);
-        this.timerManager = new GameTimerManager();
+
+        // Передаем настройки таймера из конфигурации
+        const timerConfig = this.config.options?.timerSettings
+            ? {
+                  answerTimeout:
+                      this.config.options.timerSettings.answerTimeout,
+                  bettingTimeout:
+                      this.config.options.timerSettings.actionTimeout,
+              }
+            : {};
+        this.timerManager = new GameTimerManager(timerConfig);
 
         // Подписываемся на события менеджеров
         this.setupManagerEventListeners();
@@ -406,9 +416,13 @@ export class Game extends EventEmitter implements IGame {
     /**
      * Сериализация игры
      */
-    public serialize(): { success: boolean; data?: string; error?: string } {
+    public serialize(options?: SerializationOptions): {
+        success: boolean;
+        data?: string;
+        error?: string;
+    } {
         try {
-            const serialized = GameSerializer.serialize(this);
+            const serialized = GameSerializer.serialize(this, options);
             return {
                 success: true,
                 data: JSON.stringify(serialized),

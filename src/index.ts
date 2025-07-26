@@ -21,6 +21,9 @@ export {
     GameTimerManager,
 } from "./core";
 
+// Export utilities
+export { Logger, logger } from "./utils/logger";
+
 // Export Game as the main class
 export { Game };
 
@@ -30,6 +33,10 @@ export { Game };
 const QuizPoker = {
     /**
      * Создать новую игру (оригинальная версия)
+     */
+
+    /**
+     * Создать новую игру (рефакторированная версия с менеджерами)
      */
     createGame(
         players: User[],
@@ -55,45 +62,9 @@ const QuizPoker = {
     },
 
     /**
-     * Создать новую игру (рефакторированная версия с менеджерами)
-     */
-    createGameRefactored(
-        players: User[],
-        getQuestionFunction: GetQuestionFunction,
-        options?: Partial<GameConfig>
-    ): Game {
-        const config: GameConfig = {
-            minPlayers: 2,
-            maxPlayers: 8,
-            initialStack: 1000,
-            anteSize: 50,
-            ...options,
-        };
-
-        const game = new Game(config, getQuestionFunction);
-
-        // Добавляем игроков
-        players.forEach((user) => {
-            game.addPlayer(user);
-        });
-
-        return game;
-    },
-
-    /**
-     * Создать игру из сериализованных данных
-     */
-    createFromJSON(
-        data: SerializedGame,
-        getQuestionFunction: GetQuestionFunction
-    ): Game | null {
-        return Game.createFromJSON(data, getQuestionFunction);
-    },
-
-    /**
      * Создать рефакторированную игру из сериализованных данных
      */
-    createRefactoredFromJSON(
+    createFromJSON(
         data: SerializedGame,
         getQuestionFunction: GetQuestionFunction
     ): Game | null {

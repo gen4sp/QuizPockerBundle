@@ -10,6 +10,10 @@ export class Logger {
         this.logLevel = logLevel;
     }
 
+    public setLevel(level: LogLevel): void {
+        this.logLevel = level;
+    }
+
     private shouldLog(level: LogLevel): boolean {
         const levels: LogLevel[] = ["debug", "info", "warn", "error"];
         return levels.indexOf(level) >= levels.indexOf(this.logLevel);
@@ -39,3 +43,6 @@ export class Logger {
         }
     }
 }
+
+// Singleton instance for global usage
+export const logger = new Logger();

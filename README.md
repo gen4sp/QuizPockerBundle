@@ -42,7 +42,7 @@ yarn test       # запуск тестов
 import QuizPoker, { Game } from "quizpoker-bundle";
 
 // Создание игры с менеджерами
-const game = QuizPoker.createGameRefactored(
+const game = QuizPoker.createGame(
     [
         { id: "1", name: "Игрок 1" },
         { id: "2", name: "Игрок 2" },
@@ -123,7 +123,7 @@ timerManager.on("answer_timeout", () => {
 ```
 src/
   ├── core/                      # Основная игровая логика
-  │   ├── GameRefactored.ts      # Основной класс игры с менеджерами
+  │   ├── Game.ts      # Основной класс игры с менеджерами
   │   ├── GamePhaseManager.ts    # Управление фазами игры
   │   ├── BettingManager.ts      # Обработка ставок
   │   ├── WinnerDeterminator.ts  # Определение победителей
