@@ -378,7 +378,7 @@ export class Game extends EventEmitter implements IGame {
         if (answer === undefined || !this.currentRound) return false;
 
         // Записываем ответ игрока
-        (player as any).answer = answer;
+        player.answer = answer;
 
         this.emit("player_answer", {
             player,
@@ -400,7 +400,7 @@ export class Game extends EventEmitter implements IGame {
             (p) => p.status !== PlayerStatus.FOLDED
         );
 
-        return activePlayers.every((p) => (p as any).answer !== undefined);
+        return activePlayers.every((p) => p.answer !== undefined);
     }
 
     /**

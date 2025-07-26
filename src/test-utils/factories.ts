@@ -72,7 +72,6 @@ export function createQuestion(overrides: Partial<Question> = {}): Question {
     return {
         text: "Сколько дней в году?",
         correctAnswer: 365,
-        answer: 365,
         difficulty: 1,
         ...overrides,
     };

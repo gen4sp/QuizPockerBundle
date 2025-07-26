@@ -161,8 +161,8 @@ export class PlayerManager extends EventEmitter {
         const player = this.getPlayer(playerId);
         if (!player) return false;
 
-        (player as any).answer = answer;
-        (player as any).lastActionTime = new Date();
+        player.answer = answer;
+        player.lastActionTime = new Date();
 
         this.emit("player_answered", {
             playerId,
@@ -278,10 +278,8 @@ export class PlayerManager extends EventEmitter {
                 player.status = PlayerStatus.WAITING;
             }
 
-            // Сбрасываем ответ (если есть поле)
-            if ("answer" in player) {
-                delete (player as any).answer;
-            }
+            // Сбрасываем ответ
+            delete player.answer;
         });
 
         this.emit("players_reset_for_round", {

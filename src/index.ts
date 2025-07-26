@@ -12,7 +12,6 @@ export * from "./types";
 
 // Export core classes and managers (excluding Game to avoid conflict)
 export {
-    GameRefactored,
     GamePhaseManager,
     BettingManager,
     WinnerDeterminator,

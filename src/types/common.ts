@@ -4,7 +4,6 @@
 
 export interface Question {
     text: string;
-    answer: number;
     category?: string;
     /** Сложность (1-5) */
     difficulty?: number;
