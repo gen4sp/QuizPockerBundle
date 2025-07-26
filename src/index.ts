@@ -1,49 +1,60 @@
 /**
- * QuizPoker Bundle - Main entry point
+ * QuizPoker Bundle - Main API Export
  */
 
-import { BundleOptions, QuizPokerConfig } from "./types";
-import { Logger } from "./utils/logger";
+import { Game, GetQuestionFunction } from "./core/Game";
+import type { GameConfig, SerializedGame } from "./types/game";
+import type { User } from "./types/common";
+import { GameEventType } from "./types/events";
 
-export class QuizPokerBundle {
-    private config: QuizPokerConfig;
-    private logger: Logger;
+// Export all types
+export * from "./types";
+export { Game };
 
-    constructor(config: QuizPokerConfig, options: BundleOptions = {}) {
-        this.config = config;
-        this.logger = new Logger(options.logLevel || "info");
+/**
+ * QuizPoker main API object
+ */
+const QuizPoker = {
+    /**
+     * Создать новую игру
+     */
+    createGame(
+        players: User[],
+        getQuestionFunction: GetQuestionFunction,
+        options?: Partial<GameConfig>
+    ): Game {
+        const config: GameConfig = {
+            minPlayers: 2,
+            maxPlayers: 8,
+            initialStack: 1000,
+            anteSize: 50,
+            ...options,
+        };
 
-        this.logger.debug("QuizPokerBundle initialized", { config, options });
-    }
+        const game = new Game(config, getQuestionFunction);
 
-    public getName(): string {
-        return this.config.name;
-    }
+        // Добавляем игроков
+        players.forEach((user) => {
+            game.addPlayer(user);
+        });
 
-    public getVersion(): string {
-        return this.config.version;
-    }
+        return game;
+    },
 
-    public greet(): string {
-        const message = `Hello from ${this.config.name} v${this.config.version}!`;
-        this.logger.info("Greeting message generated", { message });
-        return message;
-    }
-}
+    /**
+     * Создать игру из сериализованных данных
+     */
+    createFromJSON(
+        data: SerializedGame,
+        getQuestionFunction: GetQuestionFunction
+    ): Game {
+        return Game.createFromJSON(data, getQuestionFunction);
+    },
 
-// If this file is run directly
-if (require.main === module) {
-    const config: QuizPokerConfig = {
-        name: "QuizPokerBundle",
-        version: "1.0.0",
-    };
+    /**
+     * События игры
+     */
+    events: GameEventType,
+};
 
-    const bundle = new QuizPokerBundle(config, {
-        logLevel: "info",
-        enableDebug: false,
-    });
-
-    console.log(bundle.greet());
-}
-
-export default QuizPokerBundle;
+export default QuizPoker;
