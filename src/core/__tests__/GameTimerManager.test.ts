@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { GameTimerManager, type TimerConfig } from "./GameTimerManager";
-import { RoundPhase } from "../types/round";
-import { createRound } from "../test-utils";
+import { GameTimerManager, type TimerConfig } from "../GameTimerManager";
+import { RoundPhase } from "../../types/round";
+import { createRound } from "../../test-utils";
 
 describe("GameTimerManager", () => {
     let timerManager: GameTimerManager;

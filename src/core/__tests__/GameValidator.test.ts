@@ -3,11 +3,11 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { GameValidator, type ValidationResult } from "./GameValidator";
-import { PlayerStatus, BettingAction } from "../types/player";
-import { GameStatus } from "../types/game";
-import { RoundPhase } from "../types/round";
-import { createGameConfig, createPlayer, createRound } from "../test-utils";
+import { GameValidator, type ValidationResult } from "../GameValidator";
+import { PlayerStatus, BettingAction } from "../../types/player";
+import { GameStatus } from "../../types/game";
+import { RoundPhase } from "../../types/round";
+import { createGameConfig, createPlayer, createRound } from "../../test-utils";
 
 describe("GameValidator", () => {
     let validator: GameValidator;

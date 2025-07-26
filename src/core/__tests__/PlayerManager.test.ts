@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PlayerManager } from "./PlayerManager";
-import { PlayerStatus } from "../types/player";
-import { createGameConfig, createUser, createPlayer } from "../test-utils";
+import { PlayerManager } from "../PlayerManager";
+import { PlayerStatus } from "../../types/player";
+import { createGameConfig, createUser, createPlayer } from "../../test-utils";
 
 describe("PlayerManager", () => {
     let playerManager: PlayerManager;

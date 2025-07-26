@@ -3,15 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { Game, type GetQuestionFunction } from "./Game";
-import { GameStatus } from "../types/game";
-import { PlayerStatus, BettingAction } from "../types/player";
+import { Game, type GetQuestionFunction } from "../Game";
+import { GameStatus } from "../../types/game";
+import { PlayerStatus, BettingAction } from "../../types/player";
 import {
     createGameConfig,
     createUser,
     createQuestion,
     createGetQuestionFunction,
-} from "../test-utils";
+} from "../../test-utils";
 
 describe("Game", () => {
     let game: Game;

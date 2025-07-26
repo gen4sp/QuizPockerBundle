@@ -3,16 +3,16 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { GameSerializer, type SerializationOptions } from "./GameSerializer";
-import { GameStatus } from "../types/game";
-import { PlayerStatus } from "../types/player";
-import { RoundPhase } from "../types/round";
+import { GameSerializer, type SerializationOptions } from "../GameSerializer";
+import { GameStatus } from "../../types/game";
+import { PlayerStatus } from "../../types/player";
+import { RoundPhase } from "../../types/round";
 import {
     createGameConfig,
     createPlayer,
     createRound,
     createQuestion,
-} from "../test-utils";
+} from "../../test-utils";
 
 describe("GameSerializer", () => {
     describe("serialize", () => {

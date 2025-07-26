@@ -3,10 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { GamePhaseManager } from "./GamePhaseManager";
-import { RoundPhase } from "../types/round";
-import { PlayerStatus } from "../types/player";
-import { createRound, createQuestion, createPlayer } from "../test-utils";
+import { GamePhaseManager } from "../GamePhaseManager";
+import { RoundPhase } from "../../types/round";
+import { PlayerStatus } from "../../types/player";
+import { createRound, createQuestion, createPlayer } from "../../test-utils";
 
 describe("GamePhaseManager", () => {
     let phaseManager: GamePhaseManager;

@@ -3,15 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { BettingManager } from "./BettingManager";
-import { PlayerStatus, BettingAction } from "../types/player";
-import { RoundPhase } from "../types/round";
+import { BettingManager } from "../BettingManager";
+import { PlayerStatus, BettingAction } from "../../types/player";
+import { RoundPhase } from "../../types/round";
 import {
     createRound,
     createPlayer,
     createRoundPot,
     createRoundSettings,
-} from "../test-utils";
+} from "../../test-utils";
 
 describe("BettingManager", () => {
     let bettingManager: BettingManager;

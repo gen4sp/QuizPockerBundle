@@ -6,14 +6,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
     WinnerDeterminator,
     type WinnerDistribution,
-} from "./WinnerDeterminator";
-import { PlayerStatus } from "../types/player";
+} from "../WinnerDeterminator";
+import { PlayerStatus } from "../../types/player";
 import {
     createRound,
     createPlayer,
     createQuestion,
     createRoundPot,
-} from "../test-utils";
+} from "../../test-utils";
 
 describe("WinnerDeterminator", () => {
     let winnerDeterminator: WinnerDeterminator;
