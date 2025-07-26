@@ -206,10 +206,12 @@ export class Game extends EventEmitter implements IGame {
      * Начать игру
      */
     public async startGame(): Promise<void> {
-        const validation = this.validator.validateGameStart(
-            this.players,
-            this.status
-        );
+        // Проверяем что игра еще не запущена
+        if (this.status !== GameStatus.WAITING) {
+            throw new Error("Игра уже запущена или завершена");
+        }
+
+        const validation = this.validator.validateGameStart(this.players);
         if (!validation.isValid) {
             throw new Error(validation.error || "Невозможно начать игру");
         }
@@ -285,6 +287,91 @@ export class Game extends EventEmitter implements IGame {
     }
 
     /**
+     * Обработать действие игрока (для тестов)
+     */
+    public async processPlayerAction(
+        action: PlayerAction
+    ): Promise<{ success: boolean; error?: string }> {
+        try {
+            const result = await this.action(
+                action.playerId,
+                action.type,
+                action.amount,
+                action.answer
+            );
+            return { success: result };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            };
+        }
+    }
+
+    /**
+     * Получить состояние игры
+     */
+    public getGameState(): any {
+        return {
+            id: this.id,
+            status: this.status,
+            players: this.players,
+            roundNumber: this.roundNumber,
+            totalPot: this.totalPot,
+            currentRound: this.currentRound,
+            dealerPosition: this.dealerPosition,
+            gameStats: this.gameStats,
+            createdAt: this.createdAt,
+            startedAt: this.startedAt,
+            finishedAt: this.finishedAt,
+        };
+    }
+
+    /**
+     * Приостановить игру
+     */
+    public pauseGame(): void {
+        if (this.status !== GameStatus.PLAYING) {
+            throw new Error("Игра не активна");
+        }
+
+        this.status = GameStatus.PAUSED;
+        this.emit("game_paused", { game: this });
+    }
+
+    /**
+     * Возобновить игру
+     */
+    public resumeGame(): void {
+        if (this.status !== GameStatus.PAUSED) {
+            throw new Error("Игра не приостановлена");
+        }
+
+        this.status = GameStatus.PLAYING;
+        this.emit("game_resumed", { game: this });
+    }
+
+    /**
+     * Завершить игру принудительно
+     */
+    public endGame(): void {
+        this.status = GameStatus.FINISHED;
+        this.finishedAt = new Date();
+
+        // Определяем победителя
+        const rankings = this.playerManager.getPlayerRankings();
+        const winner = rankings[0];
+
+        this.emit("game_ended", {
+            game: this,
+            winner,
+            finalStandings: rankings,
+            duration:
+                this.finishedAt.getTime() - (this.startedAt?.getTime() || 0),
+        });
+    }
+
+    /**
      * Обработать ответ игрока
      */
     private processAnswer(player: Player, answer?: number): boolean {
@@ -319,8 +406,22 @@ export class Game extends EventEmitter implements IGame {
     /**
      * Сериализация игры
      */
-    public serialize(): SerializedGame {
-        return GameSerializer.serialize(this);
+    public serialize(): { success: boolean; data?: string; error?: string } {
+        try {
+            const serialized = GameSerializer.serialize(this);
+            return {
+                success: true,
+                data: JSON.stringify(serialized),
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Serialization failed",
+            };
+        }
     }
 
     /**
@@ -443,7 +544,7 @@ export class Game extends EventEmitter implements IGame {
 
         // Проверяем условия завершения игры
         if (this.shouldEndGame()) {
-            await this.endGame();
+            await this.finishGame();
         } else {
             // Подготавливаем следующий раунд
             this.prepareNextRound();
@@ -481,9 +582,9 @@ export class Game extends EventEmitter implements IGame {
     }
 
     /**
-     * Завершить игру
+     * Завершить игру (приватный метод для автоматического завершения)
      */
-    private async endGame(): Promise<void> {
+    private async finishGame(): Promise<void> {
         this.status = GameStatus.FINISHED;
         this.finishedAt = new Date();
 
@@ -602,6 +703,10 @@ export class Game extends EventEmitter implements IGame {
      * Очистка ресурсов при уничтожении объекта
      */
     public destroy(): void {
+        this.status = GameStatus.CANCELLED;
+        this.players = [];
+        this.currentRound = null as any;
+
         this.phaseManager.destroy();
         this.bettingManager.destroy();
         this.winnerDeterminator.destroy();

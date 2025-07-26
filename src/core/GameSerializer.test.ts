@@ -15,18 +15,6 @@ import {
 } from "../test-utils";
 
 describe("GameSerializer", () => {
-    let serializer: GameSerializer;
-
-    beforeEach(() => {
-        serializer = new GameSerializer();
-    });
-
-    describe("Конструктор", () => {
-        it("должен создать экземпляр GameSerializer", () => {
-            expect(serializer).toBeInstanceOf(GameSerializer);
-        });
-    });
-
     describe("serialize", () => {
         it("должен сериализовать базовую игру", () => {
             const gameData = {
@@ -50,12 +38,11 @@ describe("GameSerializer", () => {
                 },
             };
 
-            const result = serializer.serialize(gameData);
+            const result = GameSerializer.serialize(gameData);
 
-            expect(result.success).toBe(true);
-            expect(result.data).toBeDefined();
-            expect(result.metadata?.version).toBe("1.0.0");
-            expect(result.metadata?.serializedAt).toBeInstanceOf(Date);
+            expect(result.gameData).toBeDefined();
+            expect(result.version).toBe("1.0.0");
+            expect(result.serializedAt).toBeInstanceOf(Date);
         });
 
         it("должен сериализовать игру с текущим раундом", () => {
@@ -86,11 +73,13 @@ describe("GameSerializer", () => {
                 },
             };
 
-            const result = serializer.serialize(gameData);
+            const result = GameSerializer.serialize(gameData);
 
-            expect(result.success).toBe(true);
-            expect(result.data).toContain("currentRound");
-            expect(result.data).toContain("BETTING1");
+            expect(result.gameData).toBeDefined();
+            expect(result.gameData.currentRound).toBeDefined();
+            expect(result.gameData.currentRound?.currentPhase).toBe(
+                RoundPhase.BETTING1
+            );
         });
 
         it("должен применить опции сериализации", () => {
@@ -101,7 +90,7 @@ describe("GameSerializer", () => {
                 players: [createPlayer()],
                 roundNumber: 0,
                 dealerPosition: 0,
-                roundHistory: [],
+                roundHistory: [createRound()],
                 createdAt: new Date(),
                 totalPot: 0,
                 gameStats: {
@@ -116,37 +105,15 @@ describe("GameSerializer", () => {
             };
 
             const options: SerializationOptions = {
-                includePrivateData: false,
-                compressData: true,
                 includeHistory: false,
+                includePlayerStats: false,
+                compressionLevel: "full",
             };
 
-            const result = serializer.serialize(gameData, options);
+            const result = GameSerializer.serialize(gameData, options);
 
-            expect(result.success).toBe(true);
-            expect(result.compressed).toBe(true);
-        });
-
-        it("должен обработать ошибку сериализации", () => {
-            // Создаем объект с циклической ссылкой
-            const cyclicData: any = {
-                id: "game-1",
-                config: createGameConfig(),
-                status: GameStatus.WAITING,
-                players: [],
-                roundNumber: 0,
-                dealerPosition: 0,
-                roundHistory: [],
-                createdAt: new Date(),
-                totalPot: 0,
-                gameStats: {},
-            };
-            cyclicData.self = cyclicData; // Циклическая ссылка
-
-            const result = serializer.serialize(cyclicData);
-
-            expect(result.success).toBe(false);
-            expect(result.error).toBeDefined();
+            expect(result.gameData).toBeDefined();
+            expect(result.gameData.roundHistory).toEqual([]);
         });
     });
 
@@ -173,12 +140,12 @@ describe("GameSerializer", () => {
                 },
             };
 
-            const serialized = serializer.serialize(gameData);
-            const result = serializer.deserialize(serialized.data!);
+            const serialized = GameSerializer.serialize(gameData);
+            const result = GameSerializer.deserialize(serialized);
 
             expect(result.success).toBe(true);
-            expect(result.gameData?.id).toBe("game-1");
-            expect(result.gameData?.status).toBe(GameStatus.WAITING);
+            expect(result.game?.id).toBe("game-1");
+            expect(result.game?.status).toBe(GameStatus.WAITING);
         });
 
         it("должен восстановить даты как объекты Date", () => {
@@ -204,58 +171,37 @@ describe("GameSerializer", () => {
                 },
             };
 
-            const serialized = serializer.serialize(gameData);
-            const result = serializer.deserialize(serialized.data!);
+            const serialized = GameSerializer.serialize(gameData);
+            const result = GameSerializer.deserialize(serialized);
 
             expect(result.success).toBe(true);
-            expect(result.gameData?.createdAt).toBeInstanceOf(Date);
-            expect(result.gameData?.createdAt?.getTime()).toBe(
-                createdAt.getTime()
-            );
+            expect(result.game?.createdAt).toBeInstanceOf(Date);
+            expect(result.game?.createdAt?.getTime()).toBe(createdAt.getTime());
         });
 
         it("должен обработать невалидные JSON данные", () => {
-            const result = serializer.deserialize("invalid json");
+            const result = GameSerializer.deserialize("invalid json");
 
             expect(result.success).toBe(false);
             expect(result.error).toContain("JSON");
         });
 
         it("должен обработать устаревшую версию", () => {
-            const oldVersionData = JSON.stringify({
+            const oldVersionData = {
                 version: "0.5.0",
                 gameData: { id: "test" },
-            });
+                serializedAt: new Date(),
+            } as any;
 
-            const result = serializer.deserialize(oldVersionData);
+            const result = GameSerializer.deserialize(oldVersionData);
 
             expect(result.success).toBe(false);
             expect(result.error).toContain("версия");
         });
     });
 
-    describe("compress и decompress", () => {
-        it("должен сжать и распаковать данные", () => {
-            const originalData =
-                "This is a test string that should be compressed";
-
-            const compressed = serializer.compress(originalData);
-            const decompressed = serializer.decompress(compressed);
-
-            expect(decompressed).toBe(originalData);
-            expect(compressed.length).toBeLessThan(originalData.length);
-        });
-
-        it("должен обработать пустые данные", () => {
-            const compressed = serializer.compress("");
-            const decompressed = serializer.decompress(compressed);
-
-            expect(decompressed).toBe("");
-        });
-    });
-
-    describe("validateGameData", () => {
-        it("должен валидировать корректную структуру игры", () => {
+    describe("createClientSnapshot", () => {
+        it("должен создать снимок для клиента", () => {
             const gameData = {
                 id: "game-1",
                 config: createGameConfig(),
@@ -266,79 +212,45 @@ describe("GameSerializer", () => {
                 roundHistory: [],
                 createdAt: new Date(),
                 totalPot: 0,
-                gameStats: {
-                    totalDuration: 0,
-                    roundsPlayed: 0,
-                    averageRoundDuration: 0,
-                    totalBets: 0,
-                    largestPot: 0,
-                    totalFolds: 0,
-                    totalAllIns: 0,
-                },
             };
 
-            const isValid = serializer.validateGameData(gameData);
-            expect(isValid).toBe(true);
-        });
+            const snapshot = GameSerializer.createClientSnapshot(gameData);
 
-        it("должен отклонить данные без обязательных полей", () => {
-            const incompleteData = {
-                id: "game-1",
-                // Отсутствуют обязательные поля
-            };
-
-            const isValid = serializer.validateGameData(incompleteData);
-            expect(isValid).toBe(false);
-        });
-
-        it("должен отклонить данные с неправильными типами", () => {
-            const invalidData = {
-                id: "game-1",
-                config: createGameConfig(),
-                status: "invalid_status", // Неправильный тип
-                players: "not_an_array", // Неправильный тип
-                roundNumber: "zero", // Неправильный тип
-                dealerPosition: 0,
-                roundHistory: [],
-                createdAt: new Date(),
-                totalPot: 0,
-                gameStats: {},
-            };
-
-            const isValid = serializer.validateGameData(invalidData);
-            expect(isValid).toBe(false);
+            expect(snapshot.id).toBe("game-1");
+            expect(snapshot.status).toBe(GameStatus.WAITING);
+            expect(snapshot.players).toBeDefined();
+            expect(snapshot.config).toBeDefined();
         });
     });
 
-    describe("getSerializationStats", () => {
-        it("должен вернуть статистику сериализации", () => {
-            const gameData = {
-                id: "game-1",
-                config: createGameConfig(),
-                status: GameStatus.WAITING,
-                players: [createPlayer()],
-                roundNumber: 0,
-                dealerPosition: 0,
-                roundHistory: [],
-                createdAt: new Date(),
-                totalPot: 0,
-                gameStats: {
-                    totalDuration: 0,
-                    roundsPlayed: 0,
-                    averageRoundDuration: 0,
-                    totalBets: 0,
-                    largestPot: 0,
-                    totalFolds: 0,
-                    totalAllIns: 0,
+    describe("checkCompatibility", () => {
+        it("должен проверить совместимость валидных данных", () => {
+            const validData = {
+                version: "1.0.0",
+                gameData: {
+                    id: "test",
+                    config: { anteSize: 10 },
                 },
-            };
+                serializedAt: new Date(),
+            } as any;
 
-            serializer.serialize(gameData);
-            const stats = serializer.getSerializationStats();
+            const result = GameSerializer.checkCompatibility(validData);
 
-            expect(stats.totalSerializations).toBe(1);
-            expect(stats.totalDeserializations).toBe(0);
-            expect(stats.averageSerializationTime).toBeGreaterThan(0);
+            expect(result.compatible).toBe(true);
+            expect(result.version).toBe("1.0.0");
+        });
+
+        it("должен обнаружить несовместимую версию", () => {
+            const incompatibleData = {
+                version: "0.5.0",
+                gameData: { id: "test" },
+                serializedAt: new Date(),
+            } as any;
+
+            const result = GameSerializer.checkCompatibility(incompatibleData);
+
+            expect(result.compatible).toBe(false);
+            expect(result.issues).toContain("Неподдерживаемая версия: 0.5.0");
         });
     });
 });

@@ -71,6 +71,7 @@ describe("GamePhaseManager", () => {
                 round,
                 previousPhase: RoundPhase.ANTE,
                 newPhase: RoundPhase.QUESTION1,
+                reason: "automatic",
             });
         });
 
@@ -234,6 +235,7 @@ describe("GamePhaseManager", () => {
                 round,
                 previousPhase: RoundPhase.ANTE,
                 newPhase: RoundPhase.QUESTION1,
+                reason: "automatic",
             });
         });
 

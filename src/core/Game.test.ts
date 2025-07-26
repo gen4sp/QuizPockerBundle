@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Game, type GetQuestionFunction } from "./Game";
 import { GameStatus } from "../types/game";
-import { PlayerStatus } from "../types/player";
+import { PlayerStatus, BettingAction } from "../types/player";
 import {
     createGameConfig,
     createUser,
@@ -157,7 +157,8 @@ describe("Game", () => {
             const player = game.players[0];
             const action = {
                 playerId: player.id,
-                type: "check" as any,
+                type: BettingAction.ANSWER,
+                answer: 1,
                 timestamp: new Date(),
             };
 
@@ -169,7 +170,8 @@ describe("Game", () => {
         it("должен отклонить невалидное действие", async () => {
             const action = {
                 playerId: "nonexistent",
-                type: "check" as any,
+                type: BettingAction.ANSWER,
+                answer: 1,
                 timestamp: new Date(),
             };
 

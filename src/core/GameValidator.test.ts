@@ -194,7 +194,7 @@ describe("GameValidator", () => {
 
         it("должен отклонить CALL если недостаточно фишек", () => {
             player.currentBet = 50;
-            player.stack = 25; // Недостаточно для call
+            player.stack = 25; // Недостаточно для call (нужно 50)
             const otherPlayer = createPlayer({ currentBet: 100 });
             round.activePlayers.push(otherPlayer);
 
@@ -469,18 +469,24 @@ describe("GameValidator", () => {
 
     describe("Вспомогательные методы", () => {
         it("должен правильно вычислять текущую ставку", () => {
-            const players = [
-                createPlayer({ currentBet: 100 }),
-                createPlayer({ currentBet: 200 }),
-                createPlayer({ currentBet: 150 }),
-            ];
+            const round = createRound({
+                activePlayers: [
+                    createPlayer({ currentBet: 100 }),
+                    createPlayer({ currentBet: 200 }),
+                    createPlayer({ currentBet: 150 }),
+                ],
+            });
 
-            const currentBet = validator["getCurrentBet"](players);
+            const currentBet = validator["getCurrentBet"](round);
             expect(currentBet).toBe(200);
         });
 
         it("должен вернуть 0 как текущую ставку для пустого массива", () => {
-            const currentBet = validator["getCurrentBet"]([]);
+            const round = createRound({
+                activePlayers: [],
+            });
+
+            const currentBet = validator["getCurrentBet"](round);
             expect(currentBet).toBe(0);
         });
 

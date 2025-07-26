@@ -96,7 +96,7 @@ export class GameValidator {
         ) {
             return {
                 isValid: false,
-                error: "Игрок уже сбросил карты",
+                error: "Игрок сбросил карты",
                 errorCode: "PLAYER_FOLDED",
             };
         }
@@ -158,8 +158,8 @@ export class GameValidator {
             if (!questionPhases.includes(phase)) {
                 return {
                     isValid: false,
-                    error: "Ответы недоступны в данной фазе",
-                    errorCode: "ANSWERS_NOT_ALLOWED_IN_PHASE",
+                    error: "Ответы принимаются только в фазе вопроса",
+                    errorCode: "INVALID_PHASE_FOR_ANSWER",
                 };
             }
         }
@@ -216,7 +216,7 @@ export class GameValidator {
             return {
                 isValid: false,
                 error: "Нельзя чекать, есть ставка для уравнивания",
-                errorCode: "CANNOT_CHECK_WITH_BET",
+                errorCode: "INVALID_CHECK",
             };
         }
 
@@ -235,11 +235,12 @@ export class GameValidator {
             };
         }
 
-        if (player.stack <= 0) {
+        const callAmount = currentBet - player.currentBet;
+        if (player.stack < callAmount) {
             return {
                 isValid: false,
-                error: "Недостаточно фишек для колла",
-                errorCode: "INSUFFICIENT_CHIPS_FOR_CALL",
+                error: "Недостаточно фишек для уравнивания",
+                errorCode: "INSUFFICIENT_CHIPS_CALL",
             };
         }
 
@@ -257,8 +258,8 @@ export class GameValidator {
         if (action.amount === undefined) {
             return {
                 isValid: false,
-                error: "Не указана сумма рейза",
-                errorCode: "RAISE_AMOUNT_MISSING",
+                error: "Не указана сумма повышения",
+                errorCode: "MISSING_RAISE_AMOUNT",
             };
         }
 
@@ -274,8 +275,8 @@ export class GameValidator {
         if (player.stack < requiredChips) {
             return {
                 isValid: false,
-                error: "Недостаточно фишек для рейза",
-                errorCode: "INSUFFICIENT_CHIPS_FOR_RAISE",
+                error: "Недостаточно фишек для повышения",
+                errorCode: "INSUFFICIENT_CHIPS_RAISE",
             };
         }
 
@@ -300,7 +301,7 @@ export class GameValidator {
             return {
                 isValid: false,
                 error: "Нет фишек для all-in",
-                errorCode: "NO_CHIPS_FOR_ALL_IN",
+                errorCode: "NO_CHIPS_ALL_IN",
             };
         }
 
@@ -349,18 +350,7 @@ export class GameValidator {
     /**
      * Валидация начала игры
      */
-    public validateGameStart(
-        players: Player[],
-        gameStatus: GameStatus
-    ): ValidationResult {
-        if (gameStatus !== GameStatus.WAITING) {
-            return {
-                isValid: false,
-                error: "Игра уже начата или завершена",
-                errorCode: "GAME_ALREADY_STARTED",
-            };
-        }
-
+    public validateGameStart(players: Player[]): ValidationResult {
         const activePlayers = players.filter(
             (p) => p.status !== PlayerStatus.ELIMINATED
         );
@@ -368,8 +358,56 @@ export class GameValidator {
         if (activePlayers.length < this.config.minPlayers) {
             return {
                 isValid: false,
-                error: `Недостаточно игроков. Минимум: ${this.config.minPlayers}`,
-                errorCode: "NOT_ENOUGH_PLAYERS",
+                error: "Недостаточно игроков для начала игры",
+                errorCode: "INSUFFICIENT_PLAYERS",
+            };
+        }
+
+        if (players.length > this.config.maxPlayers) {
+            return {
+                isValid: false,
+                error: "Превышено максимальное количество игроков",
+                errorCode: "TOO_MANY_PLAYERS",
+            };
+        }
+
+        return { isValid: true };
+    }
+
+    /**
+     * Валидация начала раунда
+     */
+    public validateRoundStart(players: Player[]): ValidationResult {
+        const activePlayers = players.filter(
+            (p) => p.status !== PlayerStatus.ELIMINATED && p.stack > 0
+        );
+
+        if (activePlayers.length < 2) {
+            return {
+                isValid: false,
+                error: "Недостаточно активных игроков",
+                errorCode: "INSUFFICIENT_ACTIVE_PLAYERS",
+            };
+        }
+
+        return { isValid: true };
+    }
+
+    /**
+     * Валидация фазы ставок
+     */
+    public validateBettingPhase(round: Round): ValidationResult {
+        const bettingPhases = [
+            RoundPhase.BETTING1,
+            RoundPhase.BETTING2,
+            RoundPhase.BETTING3,
+        ];
+
+        if (!bettingPhases.includes(round.currentPhase)) {
+            return {
+                isValid: false,
+                error: "Неправильная фаза для ставок",
+                errorCode: "INVALID_BETTING_PHASE",
             };
         }
 
@@ -451,6 +489,21 @@ export class GameValidator {
     private getCurrentBet(round: Round): number {
         if (round.activePlayers.length === 0) return 0;
         return Math.max(...round.activePlayers.map((p) => p.currentBet));
+    }
+
+    /**
+     * Получить текущую ставку из массива игроков (для тестов)
+     */
+    private getCurrentBetFromPlayers(players: Player[]): number {
+        if (players.length === 0) return 0;
+        return Math.max(...players.map((p) => p.currentBet));
+    }
+
+    /**
+     * Подсчитать активных игроков
+     */
+    private getActivePlayersCount(players: Player[]): number {
+        return players.filter((p) => p.status === PlayerStatus.ACTIVE).length;
     }
 
     /**

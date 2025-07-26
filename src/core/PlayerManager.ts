@@ -89,7 +89,7 @@ export class PlayerManager extends EventEmitter {
 
         this.emit("player_removed", {
             playerId,
-            totalPlayers: this.players.length,
+            player: removedPlayer,
         });
 
         return true;
@@ -110,11 +110,14 @@ export class PlayerManager extends EventEmitter {
     }
 
     /**
-     * Получить активных игроков (не исключенных)
+     * Получить активных игроков (не исключенных и не сбросивших)
      */
     public getActivePlayers(): Player[] {
         return this.players.filter(
-            (p) => p.status !== PlayerStatus.ELIMINATED && p.stack > 0
+            (p) =>
+                p.status !== PlayerStatus.ELIMINATED &&
+                p.status !== PlayerStatus.FOLDED &&
+                p.stack > 0
         );
     }
 
@@ -127,6 +130,46 @@ export class PlayerManager extends EventEmitter {
                 p.status !== PlayerStatus.FOLDED &&
                 p.status !== PlayerStatus.ELIMINATED
         );
+    }
+
+    /**
+     * Обновить статус игрока
+     */
+    public updatePlayerStatus(
+        playerId: string,
+        newStatus: PlayerStatus
+    ): boolean {
+        const player = this.getPlayer(playerId);
+        if (!player) return false;
+
+        const previousStatus = player.status;
+        player.status = newStatus;
+
+        this.emit("player_status_changed", {
+            playerId,
+            previousStatus,
+            newStatus,
+        });
+
+        return true;
+    }
+
+    /**
+     * Установить ответ игрока
+     */
+    public setPlayerAnswer(playerId: string, answer: number): boolean {
+        const player = this.getPlayer(playerId);
+        if (!player) return false;
+
+        (player as any).answer = answer;
+        (player as any).lastActionTime = new Date();
+
+        this.emit("player_answered", {
+            playerId,
+            answer,
+        });
+
+        return true;
     }
 
     /**
@@ -161,8 +204,11 @@ export class PlayerManager extends EventEmitter {
         if (!currentDealer) {
             // Если дилера нет, назначаем первого игрока
             if (this.players.length > 0) {
-                this.players[0].isDealer = true;
-                return this.players[0];
+                const firstPlayer = this.players[0];
+                if (firstPlayer) {
+                    firstPlayer.isDealer = true;
+                    return firstPlayer;
+                }
             }
             return null;
         }

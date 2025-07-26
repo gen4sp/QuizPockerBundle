@@ -72,7 +72,7 @@ export class GameSerializer {
             if (!versionCheck.success) {
                 return {
                     success: false,
-                    error: versionCheck.error,
+                    error: versionCheck.error!,
                 };
             }
 
@@ -81,7 +81,7 @@ export class GameSerializer {
             if (!validationResult.success) {
                 return {
                     success: false,
-                    error: validationResult.error,
+                    error: validationResult.error!,
                 };
             }
 
@@ -91,7 +91,9 @@ export class GameSerializer {
             return {
                 success: true,
                 game: restoredGame,
-                warnings: validationResult.warnings,
+                ...(validationResult.warnings && {
+                    warnings: validationResult.warnings,
+                }),
             };
         } catch (error) {
             return {
@@ -335,7 +337,7 @@ export class GameSerializer {
 
         return {
             success: true,
-            warnings: warnings.length > 0 ? warnings : undefined,
+            ...(warnings.length > 0 && { warnings }),
         };
     }
 
@@ -436,7 +438,7 @@ export class GameSerializer {
             return {
                 compatible: issues.length === 0,
                 version: data.version || "unknown",
-                issues: issues.length > 0 ? issues : undefined,
+                ...(issues.length > 0 && { issues }),
             };
         } catch (error) {
             return {
