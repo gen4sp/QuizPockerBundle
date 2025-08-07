@@ -11,7 +11,9 @@
         "watch": "tsc --watch",
         "clean": "rm -rf dist",
         "test": "vitest run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "prepare": "yarn build",
+        "prepublishOnly": "yarn build"
     },
     "keywords": [
         "typescript",
@@ -27,6 +29,9 @@
         "vitest": "^1.0.0"
     },
     "dependencies": {},
+    "files": [
+        "dist"
+    ],
     "engines": {
         "node": ">=16.0.0"
     }
