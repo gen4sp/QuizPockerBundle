@@ -106,31 +106,286 @@ if (game.status === GameStatus.WAITING) {
 
 #### Обработка действий игроков
 
+##### Основной метод `action()`
+
+Метод `action()` — это универсальный способ выполнения всех игровых действий:
+
 ```typescript
 import { BettingAction, PlayerAction } from "quizpokerbundle";
 
-// Ставки
-await game.action("player-1", BettingAction.CALL);
-await game.action("player-2", BettingAction.RAISE, 200);
-await game.action("player-3", BettingAction.FOLD);
+// Сигнатура метода
+await game.action(
+    player: Player | string,    // игрок или ID игрока
+    actionType: BettingAction,  // тип действия
+    amount?: number,           // сумма ставки (опционально)
+    answer?: number            // ответ на вопрос (опционально)
+): Promise<boolean>            // возвращает true при успехе
 
-// Ответы на вопросы
+// Примеры использования:
+
+// 1. Ставки
+await game.action("player-1", BettingAction.CHECK);         // чек
+await game.action("player-1", BettingAction.CALL);          // колл
+await game.action("player-2", BettingAction.RAISE, 200);    // рейз на 200
+await game.action("player-3", BettingAction.ALL_IN);        // олл-ин
+await game.action("player-4", BettingAction.FOLD);          // фолд
+
+// 2. Ответы на вопросы
 await game.action("player-1", BettingAction.ANSWER, undefined, 299792458);
 await game.action("player-2", BettingAction.ANSWER, undefined, 300000000);
 
-// Проверка результата действия
+// 3. Использование объекта игрока вместо ID
+const player = game.players.find(p => p.id === "player-1");
+await game.action(player, BettingAction.CALL);
+
+// 4. Обработка ошибок
+try {
+    const success = await game.action("player-1", BettingAction.RAISE, 1000);
+    if (!success) {
+        console.log("Действие отклонено валидацией");
+    }
+} catch (error) {
+    console.error("Ошибка действия:", error.message);
+}
+```
+
+##### Альтернативный метод `processPlayerAction()`
+
+Метод для тестирования и отладки с детальной информацией об ошибках:
+
+```typescript
 const actionResult = await game.processPlayerAction({
     playerId: "player-1",
     type: BettingAction.CALL,
     timestamp: new Date(),
+    amount: 100, // опционально
+    answer: 42, // опционально
 });
 
 if (!actionResult.success) {
     console.error("Ошибка действия:", actionResult.error);
+} else {
+    console.log("Действие выполнено успешно");
 }
 ```
 
-### 3. События игры
+### 3. Управление состоянием игры
+
+#### Получение состояния игры
+
+```typescript
+// Получить полное состояние игры
+const gameState = game.getGameState();
+
+console.log("Информация об игре:");
+console.log(`ID: ${gameState.id}`);
+console.log(`Статус: ${gameState.status}`);
+console.log(`Раунд: ${gameState.roundNumber}`);
+console.log(`Общий банк: ${gameState.totalPot}`);
+console.log(`Игроки: ${gameState.players.length}`);
+console.log(`Создана: ${gameState.createdAt}`);
+console.log(`Запущена: ${gameState.startedAt}`);
+console.log(`Завершена: ${gameState.finishedAt}`);
+
+// Проверка конкретных состояний
+if (gameState.status === GameStatus.PLAYING) {
+    console.log("Игра активна");
+    console.log(`Текущий раунд:`, gameState.currentRound);
+}
+
+// Статистика игры
+console.log("Статистика:", gameState.gameStats);
+```
+
+#### Управление жизненным циклом игры
+
+```typescript
+import { GameStatus } from "quizpokerbundle";
+
+// Приостановка игры
+try {
+    game.pauseGame();
+    console.log("Игра приостановлена");
+} catch (error) {
+    console.error("Нельзя приостановить игру:", error.message);
+    // Ошибка если игра не в статусе PLAYING
+}
+
+// Возобновление игры
+try {
+    game.resumeGame();
+    console.log("Игра возобновлена");
+} catch (error) {
+    console.error("Нельзя возобновить игру:", error.message);
+    // Ошибка если игра не в статусе PAUSED
+}
+
+// Принудительное завершение игры
+game.endGame();
+console.log("Игра завершена принудительно");
+
+// Проверка статуса перед действиями
+switch (game.status) {
+    case GameStatus.WAITING:
+        console.log("Ожидание игроков");
+        // Можно добавлять игроков
+        break;
+    case GameStatus.PLAYING:
+        console.log("Игра идет");
+        // Можно делать ходы
+        break;
+    case GameStatus.PAUSED:
+        console.log("Игра на паузе");
+        // Можно возобновить
+        break;
+    case GameStatus.FINISHED:
+        console.log("Игра завершена");
+        // Показать результаты
+        break;
+}
+```
+
+#### Добавление игроков
+
+```typescript
+import { User, GameStatus } from "quizpokerbundle";
+
+// Проверка возможности добавления игрока
+function canAddPlayer(game: Game, userId: string): boolean {
+    // Проверяем статус игры
+    if (game.status !== GameStatus.WAITING) {
+        console.log("Нельзя добавить игрока после начала игры");
+        return false;
+    }
+
+    // Проверяем лимиты
+    if (game.players.length >= game.config.maxPlayers) {
+        console.log("Достигнуто максимальное количество игроков");
+        return false;
+    }
+
+    // Проверяем дубликаты
+    if (game.players.some((p) => p.id === userId)) {
+        console.log("Игрок уже в игре");
+        return false;
+    }
+
+    return true;
+}
+
+// Безопасное добавление игрока
+function addPlayerSafely(game: Game, user: User): boolean {
+    if (!canAddPlayer(game, user.id)) {
+        return false;
+    }
+
+    try {
+        const player = game.addPlayer(user);
+        console.log(`Игрок ${player.name} добавлен в игру`);
+        return true;
+    } catch (error) {
+        console.error("Ошибка добавления игрока:", error.message);
+        return false;
+    }
+}
+
+// Пример использования
+const newUser: User = { id: "player-3", name: "Карл" };
+if (addPlayerSafely(game, newUser)) {
+    console.log("Игрок успешно добавлен");
+} else {
+    console.log("Не удалось добавить игрока");
+}
+```
+
+#### Удаление игроков
+
+```typescript
+// Удаление игрока (только до начала игры)
+function removePlayerSafely(game: Game, playerId: string): boolean {
+    try {
+        const removed = game.removePlayer(playerId);
+        if (removed) {
+            console.log(`Игрок ${playerId} удален из игры`);
+            console.log(`Осталось игроков: ${game.players.length}`);
+        } else {
+            console.log("Игрок не найден или не может быть удален");
+        }
+        return removed;
+    } catch (error) {
+        console.error("Ошибка удаления игрока:", error.message);
+        // Возможные ошибки:
+        // - "Нельзя удалить игрока после начала игры"
+        // - "Игрок не найден"
+        return false;
+    }
+}
+
+// Пример использования
+if (game.status === GameStatus.WAITING) {
+    removePlayerSafely(game, "player-2");
+} else {
+    console.log("Нельзя удалить игрока после начала игры");
+}
+```
+
+#### Получение снимка для клиента
+
+```typescript
+// Получить облегченный снимок игры для клиента (без внутренних данных)
+const clientSnapshot = game.getClientSnapshot();
+
+console.log("Снимок для клиента:");
+console.log(`ID игры: ${clientSnapshot.id}`);
+console.log(`Статус: ${clientSnapshot.status}`);
+console.log(`Игроки: ${clientSnapshot.players.length}`);
+console.log("Данные оптимизированы для передачи по сети");
+
+// Подходит для отправки через WebSocket или API
+function broadcastGameState(game: Game) {
+    const snapshot = game.getClientSnapshot();
+    // socket.emit('game_state', snapshot);
+    // или
+    // res.json(snapshot);
+}
+```
+
+#### Уничтожение игры
+
+```typescript
+// Полное уничтожение игры и освобождение ресурсов
+function cleanupGame(game: Game): void {
+    console.log(`Уничтожение игры ${game.id}`);
+
+    // Метод destroy() автоматически:
+    // - Устанавливает статус CANCELLED
+    // - Очищает массив игроков
+    // - Уничтожает все менеджеры
+    // - Удаляет все слушатели событий
+    game.destroy();
+
+    console.log("Игра полностью уничтожена, ресурсы освобождены");
+}
+
+// Использование при завершении работы приложения
+process.on("SIGTERM", () => {
+    const activeGames = getActiveGames(); // ваша функция получения активных игр
+    activeGames.forEach((game) => {
+        cleanupGame(game);
+    });
+});
+
+// Или при удалении игры из системы
+function deleteGame(gameId: string) {
+    const game = findGameById(gameId);
+    if (game) {
+        cleanupGame(game);
+        removeGameFromStorage(gameId);
+    }
+}
+```
+
+### 4. События игры
 
 QuizPoker Bundle использует EventEmitter для уведомлений о событиях:
 
@@ -186,9 +441,32 @@ game.on("timer_expired", (data) => {
 game.on("answer_timeout", (data) => {
     console.log("Timeout ответа:", data.playerId);
 });
+
+// События управления игрой
+game.on("game_paused", (data) => {
+    console.log("Игра приостановлена:", data.game.id);
+});
+
+game.on("game_resumed", (data) => {
+    console.log("Игра возобновлена:", data.game.id);
+});
+
+game.on("game_ended", (data) => {
+    console.log("Игра завершена принудительно");
+    console.log("Победитель:", data.winner?.name);
+    console.log("Финальная таблица:", data.finalStandings);
+    console.log("Длительность игры:", data.duration, "мс");
+});
+
+// События ответов на вопросы
+game.on("player_answer", (data) => {
+    console.log(`${data.player.name} ответил: ${data.answer}`);
+    console.log("Все ответы получены:", data.allAnswersReceived);
+    console.log("Осталось времени:", data.timeRemaining);
+});
 ```
 
-### 4. Работа с менеджерами
+### 5. Работа с менеджерами
 
 QuizPoker Bundle использует модульную архитектуру с менеджерами:
 
@@ -209,40 +487,121 @@ const playerManager = new PlayerManager(config);
 const validator = new GameValidator(config);
 ```
 
-### 5. Сохранение и восстановление игры
+### 6. Сохранение и восстановление игры
 
 #### Сериализация игры
 
 ```typescript
-// Сохранение полного состояния игры
-const serializedGame = game.serialize({
-    includePlayerStats: true,
-    includeRoundHistory: true,
-    compressionLevel: 1,
+import { SerializationOptions } from "quizpokerbundle";
+
+// Основной метод сериализации
+const serializationResult = game.serialize({
+    includePlayerStats: true, // включить статистику игроков
+    includeRoundHistory: true, // включить историю раундов
+    compressionLevel: 1, // уровень сжатия
 });
 
-// Сохранение в JSON
-const gameJson = JSON.stringify(serializedGame);
-localStorage.setItem(`game_${game.id}`, gameJson);
+// Проверка результата
+if (serializationResult.success && serializationResult.data) {
+    // Сохранение в localStorage
+    localStorage.setItem(`game_${game.id}`, serializationResult.data);
+    console.log("Игра сохранена");
+} else {
+    console.error("Ошибка сериализации:", serializationResult.error);
+}
+
+// Различные варианты сериализации
+const minimalSerialization = game.serialize({
+    includePlayerStats: false,
+    includeRoundHistory: false,
+    compressionLevel: 2,
+});
+
+const fullSerialization = game.serialize({
+    includePlayerStats: true,
+    includeRoundHistory: true,
+    compressionLevel: 0, // без сжатия
+});
 ```
 
 #### Восстановление игры
 
 ```typescript
-// Загрузка из JSON
-const gameData = JSON.parse(localStorage.getItem(`game_${game.id}`));
+// Загрузка из JSON с обработкой ошибок
+function loadGame(
+    gameId: string,
+    getQuestion: GetQuestionFunction
+): Game | null {
+    try {
+        const gameJson = localStorage.getItem(`game_${gameId}`);
+        if (!gameJson) {
+            console.error("Данные игры не найдены");
+            return null;
+        }
 
-// Восстановление игры
-const restoredGame = QuizPoker.createFromJSON(gameData, getQuestion);
+        const gameData = JSON.parse(gameJson);
 
-if (restoredGame) {
-    console.log("Игра успешно восстановлена:", restoredGame.id);
-} else {
-    console.error("Ошибка восстановления игры");
+        // Восстановление игры через статический метод
+        const restoredGame = QuizPoker.createFromJSON(gameData, getQuestion);
+
+        if (restoredGame) {
+            console.log("Игра успешно восстановлена:", restoredGame.id);
+            console.log("Статус игры:", restoredGame.status);
+            console.log("Количество игроков:", restoredGame.players.length);
+            return restoredGame;
+        } else {
+            console.error("Ошибка восстановления игры из данных");
+            return null;
+        }
+    } catch (error) {
+        console.error("Ошибка загрузки игры:", error.message);
+        return null;
+    }
+}
+
+// Использование
+const game = loadGame("game-123", getQuestionFunction);
+if (game) {
+    // Игра успешно загружена, можно продолжить
+    console.log("Текущий раунд:", game.roundNumber);
 }
 ```
 
-### 6. Расширенные настройки
+#### Автосохранение игры
+
+```typescript
+// Настройка автосохранения на события
+function setupAutoSave(game: Game) {
+    const saveGame = () => {
+        const result = game.serialize({
+            includePlayerStats: true,
+            includeRoundHistory: true,
+        });
+
+        if (result.success && result.data) {
+            localStorage.setItem(`autosave_${game.id}`, result.data);
+            console.log("Автосохранение выполнено");
+        }
+    };
+
+    // Сохранять после каждого хода
+    game.on("player_action", saveGame);
+
+    // Сохранять при смене фазы
+    game.on("phase_changed", saveGame);
+
+    // Сохранять при завершении раунда
+    game.on("round_finished", saveGame);
+
+    // Сохранять при паузе
+    game.on("game_paused", saveGame);
+}
+
+// Применение автосохранения
+setupAutoSave(game);
+```
+
+### 7. Расширенные настройки
 
 #### Конфигурация с таймерами
 
@@ -565,6 +924,69 @@ const getQuestionSafely: GetQuestionFunction = async () => {
 -   **[Игровой процесс](gameflow.md)** — подробное описание механики игры
 -   **[Техническая документация](tech.md)** — архитектура и разработка
 -   **[README](../README.md)** — быстрый старт и обзор проекта
+
+## 📋 Справочник методов API
+
+### Основные методы класса Game
+
+| Метод                   | Описание                             | Параметры                              | Возврат                      |
+| ----------------------- | ------------------------------------ | -------------------------------------- | ---------------------------- |
+| `createGame()`          | Создание игры через QuizPoker API    | `players, getQuestion, config?`        | `Game`                       |
+| `addPlayer()`           | Добавить игрока в игру               | `user: User`                           | `Player`                     |
+| `removePlayer()`        | Удалить игрока (до начала игры)      | `playerId: string`                     | `boolean`                    |
+| `startGame()`           | Запустить игру                       | -                                      | `Promise<void>`              |
+| `action()`              | **Основной метод действий**          | `player, actionType, amount?, answer?` | `Promise<boolean>`           |
+| `processPlayerAction()` | Действие с детальным результатом     | `action: PlayerAction`                 | `Promise<{success, error?}>` |
+| `getGameState()`        | Получить полное состояние игры       | -                                      | `GameState`                  |
+| `getClientSnapshot()`   | Облегченный снимок для клиента       | -                                      | `ClientSnapshot`             |
+| `pauseGame()`           | Приостановить игру                   | -                                      | `void`                       |
+| `resumeGame()`          | Возобновить игру                     | -                                      | `void`                       |
+| `endGame()`             | Завершить игру принудительно         | -                                      | `void`                       |
+| `serialize()`           | Сериализовать игру                   | `options?: SerializationOptions`       | `{success, data?, error?}`   |
+| `createFromJSON()`      | Восстановить игру из JSON            | `data, getQuestion`                    | `Game \| null`               |
+| `destroy()`             | Уничтожить игру и освободить ресурсы | -                                      | `void`                       |
+
+### Типы действий игрока (BettingAction)
+
+| Действие | Описание                       | Дополнительные параметры |
+| -------- | ------------------------------ | ------------------------ |
+| `CHECK`  | Пропустить без ставки          | -                        |
+| `CALL`   | Уравнять ставку                | -                        |
+| `RAISE`  | Повысить ставку                | `amount: number`         |
+| `ALL_IN` | Поставить все фишки            | -                        |
+| `FOLD`   | Сбросить карты/выйти из раунда | -                        |
+| `ANSWER` | Ответить на вопрос             | `answer: number`         |
+
+### Основные события игры
+
+| Событие             | Когда возникает              | Данные                                                |
+| ------------------- | ---------------------------- | ----------------------------------------------------- |
+| `game_started`      | Игра запущена                | `{game, startTime}`                                   |
+| `game_finished`     | Игра завершена               | `{game, winner, results}`                             |
+| `game_paused`       | Игра приостановлена          | `{game}`                                              |
+| `game_resumed`      | Игра возобновлена            | `{game}`                                              |
+| `game_ended`        | Игра завершена принудительно | `{game, winner, finalStandings, duration}`            |
+| `player_joined`     | Игрок присоединился          | `{player}`                                            |
+| `player_action`     | Действие игрока              | `{player, action, isValid, potBefore, potAfter}`      |
+| `player_answer`     | Ответ на вопрос              | `{player, answer, timeRemaining, allAnswersReceived}` |
+| `round_started`     | Начался раунд                | `{round}`                                             |
+| `round_finished`    | Раунд завершен               | `{round, results}`                                    |
+| `phase_changed`     | Смена фазы                   | `{previousPhase, newPhase}`                           |
+| `question_revealed` | Показан вопрос               | `{question}`                                          |
+| `betting_started`   | Начались ставки              | `{phase}`                                             |
+| `pot_updated`       | Банк обновлен                | `{amount}`                                            |
+| `timer_expired`     | Истекло время                | `{playerId}`                                          |
+| `answer_timeout`    | Timeout ответа               | `{playerId}`                                          |
+
+### Статусы игры (GameStatus)
+
+| Статус      | Описание         | Доступные действия                  |
+| ----------- | ---------------- | ----------------------------------- |
+| `WAITING`   | Ожидание игроков | Добавление/удаление игроков, запуск |
+| `PLAYING`   | Игра идет        | Действия игроков, пауза, завершение |
+| `PAUSED`    | Игра на паузе    | Возобновление, завершение           |
+| `FINISHED`  | Игра завершена   | Только просмотр результатов         |
+| `CANCELLED` | Игра отменена    | -                                   |
 
 ---
 

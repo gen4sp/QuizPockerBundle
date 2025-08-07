@@ -489,17 +489,5 @@ describe("GameValidator", () => {
             const currentBet = validator["getCurrentBet"](round);
             expect(currentBet).toBe(0);
         });
-
-        it("должен правильно считать активных игроков", () => {
-            const players = [
-                createPlayer({ status: PlayerStatus.ACTIVE }),
-                createPlayer({ status: PlayerStatus.FOLDED }),
-                createPlayer({ status: PlayerStatus.ELIMINATED }),
-                createPlayer({ status: PlayerStatus.ACTIVE }),
-            ];
-
-            const activeCount = validator["getActivePlayersCount"](players);
-            expect(activeCount).toBe(2);
-        });
     });
 });

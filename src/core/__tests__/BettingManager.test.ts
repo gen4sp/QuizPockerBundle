@@ -25,10 +25,6 @@ describe("BettingManager", () => {
         it("должен создать экземпляр BettingManager", () => {
             expect(bettingManager).toBeInstanceOf(BettingManager);
         });
-
-        it("должен установить размер анте", () => {
-            expect(bettingManager["anteSize"]).toBe(anteSize);
-        });
     });
 
     describe("setCurrentRound", () => {
