@@ -2,8 +2,16 @@
     "name": "quizpokerbundle",
     "version": "1.0.1",
     "description": "QuizPoker Bundle TypeScript project",
+    "type": "module",
     "main": "dist/lib.js",
+    "module": "dist/lib.js",
     "types": "dist/lib.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/lib.js",
+            "types": "./dist/lib.d.ts"
+        }
+    },
     "scripts": {
         "build": "tsc",
         "dev": "tsx src/index.ts",
