@@ -5,6 +5,7 @@ export class Round {
     readonly players: Player[];
     readonly pot: Pot;
     private activeIndex: number;
+    phase: "betting" | "showdown" | "finished" = "betting";
 
     constructor(players: Player[]) {
         this.players = players;

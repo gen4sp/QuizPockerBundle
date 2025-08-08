@@ -4,7 +4,7 @@
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { Game, Player, Round } from "./domain";
+import { Game, Player } from "./domain";
 import { logger } from "./utils/logger";
 
 const app = express();
@@ -16,7 +16,7 @@ const io = new Server(server, {
     },
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env["PORT"] || 3001;
 
 // Хранилище активных игр
 const activeGames = new Map<string, Game>();
@@ -26,7 +26,7 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // Базовый роут для проверки работы сервера
-app.get("/", (req, res) => {
+app.get("/", (_, res) => {
     res.json({
         message: "QuizPoker Server is running!",
         activeGames: activeGames.size,
@@ -34,7 +34,7 @@ app.get("/", (req, res) => {
     });
 });
 
-app.get("/health", (req, res) => {
+app.get("/health", (_, res) => {
     res.json({ status: "OK", uptime: process.uptime() });
 });
 
@@ -60,7 +60,7 @@ io.on("connection", (socket) => {
 
                 // Добавляем игрока в игру
                 if (!game.players.find((p) => p.id === playerId)) {
-                    const player = new Player(playerId, playerName);
+                    const player = new Player(playerId, playerName, 1000);
                     game.addPlayer(player);
                     logger.info(`Player ${playerName} joined game ${gameId}`);
                 }
